@@ -1,0 +1,53 @@
+            (STCC-0 ran once earlier: initial full patch plan from specs)
+
+┌───────────────────────────────────────────────────────────────────────┐
+│                             STCC LOOP                                 │
+│        Goal: specs.md fully covered by code_patches.md (2x)            │
+└───────────────────────────────────────────────────────────────────────┘
+
+   ┌───────────────┐
+   │ STCC-1 Auditor │  specs.md  vs  code_patches.md
+   │ (coverage +    │  + repo-only-for-grounding
+   │  executability)│
+   └───────┬───────┘
+           │ produces spec_to_code_audit.md
+           │ metrics: missing_or_partial_v
+           │
+           ├── if missing_or_partial_v == 0:
+           │       consecutive_full_coverage++
+           │   else:
+           │       consecutive_full_coverage = 0
+           │
+           │ stop only if consecutive_full_coverage >= 2
+           ▼
+   ┌────────────────┐
+   │ STCC-2 Splitter │  reads spec_to_code_audit.md
+   │ (extract queues)│  writes:
+   │                │   - specs_missing.md   (V marked MISSING)
+   │                │   - specs_incomplete.md (V marked PARTIALLY)
+   └───────┬────────┘
+           ▼
+   ┌────────────────┐
+   │ STCC-3 Adder    │  reads specs_missing.md
+   │ (ADD ONLY)      │  inserts NEW V blocks into code_patches.md
+   │                 │  only if V-<n> absent
+   └───────┬────────┘
+           ▼
+   ┌────────────────┐
+   │ STCC-4 Replacer │  reads specs_incomplete.md
+   │ (REPLACE ONLY)  │  replaces those V blocks in code_patches.md
+   │                 │  with corrected repo-grounded plans
+   └───────┬────────┘
+           ▼
+   ┌────────────────┐
+   │ STCC-5 Janitor  │  prunes queues:
+   │ (cleanup lists) │  remove V from specs_missing/specs_incomplete
+   │                 │  iff V exists in code_patches.md
+   └───────┬────────┘
+           ▼
+        next cycle ────────────────────────────────────────────────► STCC-1
+
+
+Stall guard:
+- After STCC-5: if no progress (no adds/replaces/cleanup) while STCC-1 still reports missing_or_partial_v > 0
+  for 2 cycles -> STOP (stall).

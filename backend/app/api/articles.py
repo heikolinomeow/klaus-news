@@ -1,0 +1,345 @@
+"""Articles API endpoints"""
+from fastapi import APIRouter, Depends, Path
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models.article import Article
+
+router = APIRouter()
+
+
+class CreateArticleRequest(BaseModel):
+    """Request body for creating an article"""
+    post_id: int = Field(..., description="Database ID of the post to generate article from", example=1)
+
+
+class UpdateArticleRequest(BaseModel):
+    """Request body for updating an article"""
+    content: str = Field(..., description="Updated article content (markdown format)")
+
+
+@router.get("/")
+async def get_all_articles(db: Session = Depends(get_db)):
+    """
+    Retrieve all generated articles from the database (Frontend → Backend)
+
+    Returns all news articles that have been generated from posts, including
+    both published and unpublished articles.
+
+    **Use this when:**
+    - Displaying article history in the frontend
+    - Reviewing previously generated articles
+    - Checking which articles have been published to Teams
+
+    **Returns:**
+    - Article title and full content (markdown format)
+    - Generation count (how many times regenerated)
+    - Posted to Teams timestamp (null if not published yet)
+    - Associated post ID
+    """
+    # TODO: Implement query logic
+    return {"articles": []}
+
+
+@router.post("/")
+async def create_article(request: CreateArticleRequest, db: Session = Depends(get_db)):
+    """
+    Generate a news article from a post using OpenAI (Frontend → Backend → OpenAI)
+
+    This endpoint takes a post and uses OpenAI's GPT model to transform it into
+    a full news article with proper structure, context, and formatting.
+
+    **Use this when:**
+    - User wants to create an article from a selected post
+    - Converting raw X/Twitter content into publishable news
+
+    **What happens (backend flow):**
+    1. Fetch post from database by ID
+    2. Call OpenAI API with article generation prompt
+    3. Parse response (extract title from first markdown line)
+    4. Save article to database
+    5. Return generated article
+
+    **Request body:**
+    ```json
+    {
+      "post_id": 1
+    }
+    ```
+
+    **Response:**
+    - Article title (extracted from content)
+    - Full article content (markdown format)
+    - Generation count (starts at 1)
+    - Posted to Teams timestamp (null until published)
+
+    **Performance:**
+    - ⏱️ Takes 3-10 seconds (OpenAI API call)
+    - 💰 Costs ~$0.01-0.05 per article (OpenAI pricing)
+
+    **Error cases:**
+    - Post not found → Returns error
+    - OpenAI API failure → Will timeout/error
+
+    **Next steps:**
+    - Edit article → `PUT /api/articles/{id}`
+    - Regenerate if unsatisfied → `POST /api/articles/{id}/regenerate`
+    - Publish to Teams → `POST /api/articles/{id}/post-to-teams`
+    """
+    from sqlalchemy import select
+    from app.models.post import Post
+    from app.services.openai_client import openai_client
+
+    # 1. Get post by ID
+    post = db.execute(select(Post).where(Post.id == request.post_id)).scalar_one_or_none()
+    if not post:
+        return {"error": "Post not found"}
+
+    # 2. Conduct research (MVP: skip)
+
+    # 3. Generate article via OpenAI
+    content = await openai_client.generate_article(post.original_text)
+
+    # Extract title (first line of markdown)
+    title_line = content.split('\n')[0].replace('#', '').strip()
+
+    # 4. Store in database
+    new_article = Article(
+        post_id=post.id,
+        title=title_line,
+        content=content,
+        generation_count=1
+    )
+    db.add(new_article)
+    db.commit()
+    db.refresh(new_article)
+
+    return {"article": {
+        "id": new_article.id,
+        "post_id": new_article.post_id,
+        "title": new_article.title,
+        "content": new_article.content,
+        "generation_count": new_article.generation_count,
+        "posted_to_teams": new_article.posted_to_teams.isoformat() if new_article.posted_to_teams else None
+    }}
+
+
+@router.put("/{article_id}")
+async def update_article(
+    article_id: int = Path(..., description="Database ID of the article to update"),
+    request: UpdateArticleRequest = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Update article content after user edits (Frontend → Backend)
+
+    Allows users to manually edit the AI-generated article content before
+    publishing to Teams. Useful for fixing errors, adding context, or
+    adjusting tone.
+
+    **Use this when:**
+    - User edits article in the frontend editor
+    - Making corrections to AI-generated content
+    - Adding additional information before publishing
+
+    **What happens:**
+    - Updates article content in database
+    - Preserves generation count and other metadata
+    - Does not re-extract title (keeps existing title)
+
+    **Request body:**
+    ```json
+    {
+      "content": "# Updated Title\\n\\nUpdated article content..."
+    }
+    ```
+
+    **Parameters:**
+    - `article_id`: Database ID of the article
+
+    **Returns:**
+    - Updated article with new content
+    - All other fields unchanged
+    """
+    from sqlalchemy import select, update
+
+    db.execute(
+        update(Article).where(Article.id == article_id).values(content=request.content)
+    )
+    db.commit()
+
+    article = db.execute(select(Article).where(Article.id == article_id)).scalar_one_or_none()
+
+    return {"article": {
+        "id": article.id,
+        "post_id": article.post_id,
+        "title": article.title,
+        "content": article.content,
+        "generation_count": article.generation_count,
+        "posted_to_teams": article.posted_to_teams.isoformat() if article.posted_to_teams else None
+    } if article else None}
+
+
+@router.post("/{article_id}/regenerate")
+async def regenerate_article(
+    article_id: int = Path(..., description="Database ID of the article to regenerate"),
+    db: Session = Depends(get_db)
+):
+    """
+    Regenerate article with improved AI prompts (Frontend → Backend → OpenAI)
+
+    If the user is unsatisfied with the generated article (too short, too technical,
+    wrong tone, etc.), this endpoint regenerates it from the original post using
+    an improved prompt that asks for adjustments.
+
+    **Use this when:**
+    - User clicks "Regenerate" button in frontend
+    - AI-generated article quality is unsatisfactory
+    - Need different tone, length, or focus
+
+    **What happens (backend flow):**
+    1. Fetch existing article and source post from database
+    2. Call OpenAI API with improved prompt (mentions previous issues)
+    3. Parse new response and extract title
+    4. Update article content in database
+    5. Increment generation_count (tracks how many times regenerated)
+    6. Return updated article
+
+    **Parameters:**
+    - `article_id`: Database ID of the article to regenerate
+
+    **Response:**
+    - Updated article with new content
+    - Incremented generation_count
+    - New title extracted from content
+
+    **Performance:**
+    - ⏱️ Takes 3-10 seconds (OpenAI API call)
+    - 💰 Costs ~$0.01-0.05 per regeneration
+
+    **Note:**
+    - Each regeneration adds to generation_count
+    - Can regenerate unlimited times (but costs add up)
+    - Previous content is overwritten (not versioned)
+    """
+    from sqlalchemy import select, update
+    from app.models.post import Post
+    from app.services.openai_client import openai_client
+    from openai import AsyncOpenAI
+
+    article = db.execute(select(Article).where(Article.id == article_id)).scalar_one_or_none()
+    if not article:
+        return {"error": "Article not found"}
+
+    post = db.execute(select(Post).where(Post.id == article.post_id)).scalar_one_or_none()
+    if not post:
+        return {"error": "Source post not found"}
+
+    # Regenerate with improved prompt
+    client = AsyncOpenAI(api_key=openai_client.api_key)
+    improved_prompt = f"Write a comprehensive news article based on this post: {post.original_text}. Requirements: Informative headline, 3-5 paragraphs, Objective tone, Include context and background. Format as markdown. Previous version was too short/long/technical - adjust accordingly."
+
+    response = await client.chat.completions.create(
+        model=openai_client.model,
+        messages=[{"role": "user", "content": improved_prompt}],
+        temperature=0.7,
+        max_tokens=1000
+    )
+
+    new_content = response.choices[0].message.content.strip()
+    new_title = new_content.split('\n')[0].replace('#', '').strip()
+
+    # Increment generation_count and update
+    db.execute(
+        update(Article)
+        .where(Article.id == article_id)
+        .values(
+            content=new_content,
+            title=new_title,
+            generation_count=article.generation_count + 1
+        )
+    )
+    db.commit()
+
+    article = db.execute(select(Article).where(Article.id == article_id)).scalar_one_or_none()
+
+    return {"article": {
+        "id": article.id,
+        "post_id": article.post_id,
+        "title": article.title,
+        "content": article.content,
+        "generation_count": article.generation_count,
+        "posted_to_teams": article.posted_to_teams.isoformat() if article.posted_to_teams else None
+    }}
+
+
+@router.post("/{article_id}/post-to-teams")
+async def post_to_teams(
+    article_id: int = Path(..., description="Database ID of the article to publish"),
+    db: Session = Depends(get_db)
+):
+    """
+    Publish article to Microsoft Teams channel (Frontend → Backend → Teams Webhook)
+
+    Sends the generated article to your company's Teams channel using a webhook.
+    This is the final step in the workflow - making the news article visible to
+    the entire team.
+
+    **Use this when:**
+    - Article has been reviewed and approved
+    - Ready to share news with the team
+    - Publishing the daily news update
+
+    **What happens (backend flow):**
+    1. Fetch article from database
+    2. Format as Teams adaptive card message
+    3. POST to Teams webhook URL (from TEAMS_WEBHOOK_URL environment variable)
+    4. If successful, set `posted_to_teams` timestamp in database
+    5. Save timestamp to mark article as published
+
+    **Parameters:**
+    - `article_id`: Database ID of the article to publish
+
+    **Response:**
+    - Success: `{"message": "Posted to Teams"}`
+    - Failure: `{"error": "Failed to post to Teams"}` or `{"error": "Article not found"}`
+
+    **Important notes:**
+    - ⚠️ Can be called multiple times (no duplicate protection yet)
+    - ⚠️ Requires `TEAMS_WEBHOOK_URL` environment variable to be set
+    - ⏱️ Takes 1-3 seconds (Teams API call)
+    - Teams message includes article title and full content
+
+    **After publishing:**
+    - Article's `posted_to_teams` field shows publication timestamp
+    - Visible in Teams channel immediately
+    - Team members can read/discuss in Teams
+
+    **Troubleshooting:**
+    - If fails, check TEAMS_WEBHOOK_URL is correct
+    - Verify webhook has permissions to post to channel
+    - Check Teams channel settings allow external webhooks
+    """
+    from sqlalchemy import select, update
+    from datetime import datetime, timezone
+    from app.services.teams_client import teams_client
+
+    article = db.execute(select(Article).where(Article.id == article_id)).scalar_one_or_none()
+    if not article:
+        return {"error": "Article not found"}
+
+    # Post to Teams
+    success = await teams_client.post_article(article.title, article.content)
+
+    if success:
+        # Set posted_to_teams timestamp
+        db.execute(
+            update(Article)
+            .where(Article.id == article_id)
+            .values(posted_to_teams=datetime.now(timezone.utc))
+        )
+        db.commit()
+        return {"message": "Posted to Teams"}
+    else:
+        return {"error": "Failed to post to Teams"}

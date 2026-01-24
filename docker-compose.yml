@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: klaus-news-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: klaus_news
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: klaus-news-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/klaus_news
+      - X_API_KEY=${X_API_KEY:-placeholder_x_api_key}
+      - X_API_SECRET=${X_API_SECRET:-placeholder_x_api_secret}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-placeholder_openai_api_key}
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-placeholder_teams_webhook_url}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: klaus-news-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:8000
+
+volumes:
+  postgres_data:
