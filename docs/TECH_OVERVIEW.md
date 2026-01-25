@@ -167,7 +167,8 @@ INSERT INTO system_settings (key, value, value_type, description, category, min_
 ('worthiness_threshold', '0.6', 'float', 'Minimum score for recommended posts', 'filtering', 0.3, 0.9),
 ('duplicate_threshold', '0.85', 'float', 'Similarity threshold for duplicate detection', 'filtering', 0.7, 0.95),
 ('enabled_categories', '["Technology","Politics","Business","Science","Health","Other"]', 'json', 'Visible categories in UI', 'filtering', NULL, NULL),
-('scheduler_paused', 'false', 'bool', 'Whether background scheduler is paused', 'system', NULL, NULL);
+('scheduler_paused', 'false', 'bool', 'Whether background scheduler is paused', 'system', NULL, NULL),
+('auto_fetch_enabled', 'true', 'bool', 'Enable/disable automatic post fetching', 'scheduling', NULL, NULL);
 ```
 
 **Location:** [backend/app/models/system_settings.py](backend/app/models/system_settings.py)
@@ -178,6 +179,37 @@ INSERT INTO system_settings (key, value, value_type, description, category, min_
 - Category-based grouping for UI organization
 - Tracks update timestamps
 - Used by SettingsService with 60-second caching
+
+---
+
+### Prompts Table ✅
+
+Stores AI prompt configurations for all OpenAI operations:
+
+```sql
+CREATE TABLE prompts (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,  -- e.g., 'categorization', 'worthiness'
+    display_name VARCHAR(200) NOT NULL,  -- e.g., 'Post Categorization'
+    prompt_text TEXT NOT NULL,
+    model VARCHAR(50) NOT NULL DEFAULT 'gpt-4-turbo',
+    temperature FLOAT NOT NULL DEFAULT 0.5,
+    max_tokens INT NOT NULL DEFAULT 100,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Initial prompts (6 default configurations)
+-- Auto-seeded on first startup via seed_prompts_if_empty() in main.py
+```
+
+**Location:** [backend/app/models/prompt.py](backend/app/models/prompt.py)
+
+**Technical Implementation:**
+- SQLAlchemy ORM model with full field mapping
+- Unique constraint on `name` field prevents duplicates
+- All 6 prompts auto-seeded on application startup
+- Used by PromptService with caching (similar to SettingsService)
 
 ---
 
@@ -351,6 +383,52 @@ CREATE TABLE articles (
 - Shows post count and last fetch timestamp
 - **Location:** [backend/app/api/lists.py](backend/app/api/lists.py)
 
+**✅ `GET /api/lists/export`** - FULLY IMPLEMENTED (v2.0)
+- Returns all lists as downloadable JSON file
+- Format: `{"export_version": "2.0", "exported_at": "...", "lists": [...]}`
+- **Location:** [backend/app/api/lists.py](backend/app/api/lists.py)
+
+**✅ `POST /api/lists/import`** - FULLY IMPLEMENTED (v2.0)
+- Accepts JSON file upload, validates schema, imports lists
+- Merge behavior: Updates existing list_id, adds new lists
+- Imported lists set to enabled: false by default (safety)
+- **Location:** [backend/app/api/lists.py](backend/app/api/lists.py)
+
+---
+
+### Prompts Management API (v2.0 NEW)
+
+**✅ `GET /api/prompts`** - FULLY IMPLEMENTED
+- Returns all 6 prompts with current values
+- Includes: name, display_name, prompt_text, model, temperature, max_tokens
+- **Location:** [backend/app/api/prompts.py](backend/app/api/prompts.py)
+
+**✅ `GET /api/prompts/{name}`** - FULLY IMPLEMENTED
+- Returns single prompt details by name (e.g., 'categorization', 'worthiness')
+- **Location:** [backend/app/api/prompts.py](backend/app/api/prompts.py)
+
+**✅ `PUT /api/prompts/{name}`** - FULLY IMPLEMENTED
+- Updates prompt configuration (text, model, temperature, max_tokens)
+- Invalidates PromptService cache
+- Changes take effect immediately (next API call uses new prompt)
+- **Location:** [backend/app/api/prompts.py](backend/app/api/prompts.py)
+
+**✅ `POST /api/prompts/{name}/reset`** - FULLY IMPLEMENTED
+- Resets prompt to hardcoded default from code
+- Shows confirmation dialog in UI
+- **Location:** [backend/app/api/prompts.py](backend/app/api/prompts.py)
+
+**✅ `GET /api/prompts/export`** - FULLY IMPLEMENTED
+- Returns all prompts as downloadable JSON file
+- Format: `{"export_version": "2.0", "exported_at": "...", "prompts": {"categorization": {...}, ...}}`
+- **Location:** [backend/app/api/prompts.py](backend/app/api/prompts.py)
+
+**✅ `POST /api/prompts/import`** - FULLY IMPLEMENTED
+- Accepts JSON file upload, validates schema, imports prompts
+- Overwrite behavior: Replaces all matching prompts
+- Partial import supported (only updates included prompts)
+- **Location:** [backend/app/api/prompts.py](backend/app/api/prompts.py)
+
 ---
 
 ### Admin Operations API
@@ -513,6 +591,47 @@ class OpenAIClient:
 - `research_summary` parameter exists but not used (research not implemented)
 - Future: Could integrate web search or additional context
 
+#### 4. `score_worthiness(post_text: str, category: str)` ✅ (v2.0 NEW)
+
+**How It Works:**
+- Prompt: Evaluates newsworthiness for internal company newsletter
+- Criteria: Relevance (40%), Quality (40%), Timeliness (20%)
+- Model: GPT-4-turbo (configurable via PromptService)
+- Temperature: 0.3 (low for consistency)
+- Max tokens: 10
+- Returns: Float between 0.0 and 1.0
+- Error handling: Returns 0.5 (neutral score) if API fails or returns non-numeric
+
+**Technical Detail:** Replaces algorithmic scoring formula that was in scheduler.py
+
+**Fallback Strategy:**
+- If AI call fails, falls back to algorithmic calculation:
+  - `worthiness = 0.4 × relevance + 0.4 × quality + 0.2 × recency`
+  - Prevents ingestion from breaking due to API issues
+
+#### 5. `detect_duplicate(new_post_text: str, existing_post_text: str)` ✅ (v2.0 NEW)
+
+**How It Works:**
+- Prompt: Determines if two posts describe the same news story
+- Criteria: Same core event, same key entities, same fundamental message
+- Model: GPT-4-turbo (configurable via PromptService)
+- Temperature: 0.2 (very low for consistency)
+- Max tokens: 5
+- Returns: Boolean (True if duplicates, False if distinct)
+- Response format: "YES" or "NO"
+
+**Technical Detail:** Replaces pure TF-IDF cosine similarity approach
+
+**Hybrid Strategy:**
+- Layer 1: SHA-256 hash for exact duplicates (unchanged)
+- Layer 2: AI duplicate detection for semantic duplicates (new)
+- Layer 3: TF-IDF fallback if AI call fails (safety net)
+
+**Integration:**
+- Called during ingestion after SHA-256 check
+- Compares new post against up to 50 recent posts in same category
+- Caches results per post pair to avoid redundant calls
+
 ---
 
 ### Duplicate Detection ✅
@@ -559,10 +678,17 @@ def find_similar_post(
 - Threshold: 0.85 (semantic similarity)
 - Returns: `group_id` of matching post or None
 
-**Technical Details:**
-- TF-IDF captures semantic similarity, not just exact matches
-- Can detect rephrased tweets or similar topics
-- Higher threshold (0.85) = more conservative grouping
+**Technical Details (v2.0 Hybrid Approach):**
+- **Layer 1 (Exact):** SHA-256 hash matching (unchanged, fast)
+- **Layer 2 (Semantic):** AI-based duplicate detection via OpenAI
+  - Compares new post against up to 50 recent posts in same category
+  - Returns YES/NO based on semantic similarity
+  - Can detect rephrased tweets, same story with different wording
+- **Layer 3 (Fallback):** TF-IDF cosine similarity (threshold: 0.85)
+  - Used if AI call fails or times out
+  - Ensures ingestion never blocks due to API issues
+- **Optimization:** Only compares within same category (reduces API calls)
+- **Caching:** Post pair results cached per session (avoids redundant calls)
 
 #### 4. Group Assignment ✅
 ```python
@@ -629,11 +755,18 @@ worthiness = 0.4 × relevance + 0.4 × quality + 0.2 × recency
    - New post (day 0): recency = 1.0
    - 7 days old: recency = 0.0
 
-**Technical Rationale:**
-- Balances AI confidence (relevance) with objective metrics (quality, recency)
-- Sigmoid for length prevents harsh cliffs
-- Recency decay encourages fresh content
-- Threshold 0.6 used for "Recommended" filter
+**Technical Rationale (v2.0 AI-First Approach):**
+- **Primary:** AI-based scoring via OpenAI worthiness prompt
+  - Evaluates relevance, quality, timeliness holistically
+  - More nuanced than algorithmic formula
+  - Configurable via Settings → Prompts tab
+- **Fallback:** Algorithmic calculation if AI fails:
+  - Formula: `0.4 × relevance + 0.4 × quality + 0.2 × recency`
+  - Relevance: Uses categorization_score (AI confidence)
+  - Quality: Length score (sigmoid) + coherence (caps ratio, punctuation)
+  - Recency: Linear decay over 7 days
+- **Error Handling:** Default to 0.5 (neutral) if both AI and algorithm fail
+- Threshold 0.6 used for "Recommended" filter (unchanged)
 
 ---
 
@@ -701,13 +834,18 @@ Uses APScheduler with AsyncIOScheduler for async tasks.
 2. For each list:
    - Query ListMetadata for `last_tweet_id`
    - Call `x_client.fetch_posts_from_list(list_id, since_id=last_tweet_id, max_results=5)`
-   - For each new post:
+   - For each new post (v2.0 updated flow):
      - Check if `post_id` already exists (skip if duplicate)
+     - Check `auto_fetch_enabled` setting; if false, skip ingestion and return early
      - Call `openai_client.categorize_post()` → get category + confidence
      - Call `openai_client.generate_title_and_summary()` → get title + summary
-     - Calculate `worthiness_score` via scoring algorithm
+     - Call `openai_client.score_worthiness(post_text, category)` → get AI worthiness score (v2.0 NEW)
+       - Falls back to algorithmic calculation if AI fails
      - Compute `content_hash` via SHA-256
-     - Assign `group_id` via duplicate detection
+     - Assign `group_id` via hybrid duplicate detection (v2.0 UPDATED):
+       1. Check SHA-256 hash for exact match
+       2. If no match, call `openai_client.detect_duplicate()` against recent posts (v2.0 NEW)
+       3. If AI fails, fall back to TF-IDF similarity
      - Insert to database as new Post record
    - Update ListMetadata: `last_tweet_id = max(fetched_post_ids)`
 3. Commit transaction
@@ -810,6 +948,77 @@ async def ingest_posts_job():
 
 ---
 
+### Prompt Service ✅
+
+**Location:** [backend/app/services/prompt_service.py](backend/app/services/prompt_service.py)
+
+**Technical Implementation:**
+
+```python
+class PromptService:
+    """Load prompts from DB with caching"""
+    _cache = {}  # Class-level cache
+    _cache_expiry = 300  # 5 minutes (prompts change infrequently)
+    _cache_timestamps = {}
+
+    def get_prompt(self, name: str) -> dict:
+        """Get prompt configuration with caching"""
+        # Check if cached and not expired
+        if name in self._cache and self._is_cache_fresh(name):
+            return self._cache[name]
+
+        # Query database
+        prompt = db.query(Prompt).filter_by(name=name).first()
+        if not prompt:
+            return self._get_default_prompt(name)  # Fallback to hardcoded defaults
+
+        # Build config dict
+        config = {
+            'text': prompt.prompt_text,
+            'model': prompt.model,
+            'temperature': prompt.temperature,
+            'max_tokens': prompt.max_tokens
+        }
+
+        # Update cache
+        self._cache[name] = config
+        self._cache_timestamps[name] = time.time()
+
+        return config
+
+    def invalidate_cache(self, name: str = None):
+        """Clear cache for prompt or all prompts"""
+        if name:
+            self._cache.pop(name, None)
+            self._cache_timestamps.pop(name, None)
+        else:
+            self._cache.clear()
+            self._cache_timestamps.clear()
+```
+
+**How It Works:**
+- 5-minute TTL (longer than SettingsService because prompts change less frequently)
+- Fallback to hardcoded defaults if database entry missing (safe degradation)
+- Cache invalidation called from PUT /api/prompts/{name} after updates
+- Used by OpenAI client for all AI operations
+
+**Usage in OpenAI Client:**
+```python
+def score_worthiness(self, post_text: str, category: str) -> float:
+    prompt_svc = PromptService()
+    config = prompt_svc.get_prompt('worthiness')
+    prompt_text = config['text'].format(post_text=post_text, category=category)
+    response = openai.ChatCompletion.create(
+        model=config['model'],
+        temperature=config['temperature'],
+        max_tokens=config['max_tokens'],
+        messages=[{"role": "user", "content": prompt_text}]
+    )
+    # Parse and return score...
+```
+
+---
+
 ## Frontend Implementation Status
 
 ### Components
@@ -820,8 +1029,13 @@ async def ingest_posts_job():
 **Technical Implementation:**
 - Simple root component
 - Renders header with "Klaus News" title
-- Mounts Home component
-- Basic CSS with flexbox layout
+- Renders Routes with 3 paths: `/` (Home), `/settings/system` (Settings), `/prompts` (Prompts). Header includes navigation links.
+- CSS includes:
+  - settings-grid: 3-tile vertical layout (Data Sources, Content Filtering with embedded PromptTiles, System Control)
+  - settings-tile: tile styling with overflow-y: auto, max-height: 600px
+  - prompts-grid: responsive auto-fill grid (minmax(300px, 1fr))
+  - prompt-tile: tile styling with overflow-y: auto, max-height: 400px
+  - prompt-tile textarea: overflow handling with max-height: 200px
 
 **Status:** Complete, no changes needed
 
@@ -915,11 +1129,12 @@ async def ingest_posts_job():
 **Location:** [frontend/src/pages/Settings.tsx](frontend/src/pages/Settings.tsx)
 
 **Technical Implementation:**
-- Tab-based layout with 4 main sections:
-  - Data Sources (list management)
-  - Scheduling (intervals, archival, posts per fetch)
-  - Content Filtering (AI thresholds, category filters)
-  - System Control (manual operations, scheduler status)
+- Vertical layout with 3 tiles: Data Sources, Content Filtering (with embedded PromptTile components), System Control (with Ingestion and Archival sections)
+  - Data Sources (DataSourceManager component)
+  - Content Filtering (worthiness, duplicate thresholds, category checkboxes, embedded PromptTile components)
+  - System Control with Ingestion section (auto-fetch toggle, interval selector, manual trigger, posts per fetch) and Archival section (age/time settings, manual trigger)
+
+All tiles visible simultaneously. SettingsNav component provides route navigation to `/prompts`.
 - State management with `useState` hooks for all setting values
 - Real-time validation with inline error messages
 - Optimistic updates for instant feedback
@@ -932,10 +1147,63 @@ async def ingest_posts_job():
 - ✅ Save/cancel functionality
 - ✅ Reset to defaults button
 - ✅ Manual trigger buttons with progress indicators
-- ✅ Pause/resume scheduler toggle
 - ✅ List add/edit/delete with test connectivity
 - ✅ Success/error notifications
 - ✅ Loading states during API calls
+
+**Status:** Complete and fully functional
+
+---
+
+#### **Prompts.tsx** ✅ FULLY FUNCTIONAL (v2.0 NEW)
+**Location:** [frontend/src/pages/Prompts.tsx](frontend/src/pages/Prompts.tsx)
+
+**Technical Implementation:**
+- Tile grid of 6 prompts (responsive auto-fill layout):
+  - Each prompt rendered as PromptTile component
+  - Independent state management per tile
+  - Per-tile Save/Reset buttons
+  - No sidebar or master-detail pattern
+  - SettingsNav component provides route navigation to `/settings/system`
+
+**What's Implemented:**
+- ✅ View all prompts with current configurations
+- ✅ Edit prompt text and parameters via modal
+- ✅ Reset individual prompt to default
+- ✅ Export all prompts to JSON
+- ✅ Import prompts from JSON (overwrites)
+- ✅ Character count for prompt text
+- ✅ Validation prevents empty prompts
+- ✅ Changes take effect immediately
+
+**Status:** Complete and fully functional
+
+---
+
+#### **SettingsNav.tsx** ✅ FULLY FUNCTIONAL (v2.0 NEW)
+**Location:** [frontend/src/components/SettingsNav.tsx](frontend/src/components/SettingsNav.tsx)
+
+**Technical Implementation:**
+- Shared navigation component with 2 tabs: "System" and "AI Prompts"
+- Uses React Router Link for navigation between `/settings/system` and `/prompts`
+- useLocation hook highlights active tab based on current route
+- Rendered at top of both Settings and Prompts pages
+
+**Status:** Complete and fully functional
+
+---
+
+#### **PromptTile.tsx** ✅ FULLY FUNCTIONAL (v2.0 NEW)
+**Location:** [frontend/src/components/PromptTile.tsx](frontend/src/components/PromptTile.tsx)
+
+**Note:** Reusable component now embedded in Settings page Content Filtering sections (Worthiness, Duplicate Detection, Category Filters) in addition to AI Prompts route.
+
+**Technical Implementation:**
+- Individual prompt editor component with own state (prompt_text, model, temperature, max_tokens, description)
+- Per-tile Save and Reset buttons with independent API calls
+- All 5 fields visible inline (no modal/sidebar)
+- Textarea with overflow handling (max-height: 200px)
+- Feedback messages for save/reset operations
 
 **Status:** Complete and fully functional
 
@@ -1107,6 +1375,48 @@ export interface ListMetadata {
 ```
 
 **Status:** Complete, matches backend models exactly
+
+---
+
+## Backup & Restore Scripts ✅
+
+**Location:** Root directory ([backup_db.sh](backup_db.sh), [restore_db.sh](restore_db.sh))
+
+**Technical Implementation:**
+
+### backup_db.sh ✅
+```bash
+#!/bin/bash
+set -e
+
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_DIR="./backups"
+BACKUP_FILE="${BACKUP_DIR}/klaus_news_backup_${TIMESTAMP}.sql"
+
+mkdir -p "${BACKUP_DIR}"
+docker-compose exec -T postgres pg_dump -U postgres klaus_news > "${BACKUP_FILE}"
+```
+
+**How It Works:**
+- Uses `docker-compose exec -T` to run pg_dump inside postgres container
+- `-T` flag disables pseudo-TTY allocation (required for piping output)
+- Stores backups outside Docker volumes in `./backups/` directory
+- Timestamped filenames prevent overwrites
+- Backups survive `docker-compose down -v`
+
+### restore_db.sh ✅
+**How It Works:**
+- Validates backup file exists before proceeding
+- Prompts user for confirmation (shows warning about data overwrite)
+- Stops backend/frontend containers during restore (prevents connection conflicts)
+- Drops existing database and recreates from backup
+- Uses `docker-compose exec -T postgres psql` with input redirection
+- Restarts containers after successful restore
+
+**Technical Details:**
+- Requires postgres container to be running
+- Uses database credentials from .env file (via docker-compose)
+- Error handling with `set -e` (exit on any command failure)
 
 ---
 
@@ -1454,12 +1764,15 @@ klaus-news/
 │   │   │   └── index.ts         # TypeScript types ✅
 │   │   ├── components/
 │   │   │   ├── PostList.tsx     # Post display ✅
+│   │   │   ├── SettingsNav.tsx  # Shared settings navigation ✅
+│   │   │   ├── PromptTile.tsx   # Individual prompt editor tile ✅
 │   │   │   ├── ArticleEditor.tsx # WYSIWYG editor ✅
 │   │   │   ├── DataSourceManager.tsx # List management ✅
 │   │   │   └── ManualOperations.tsx  # Admin controls ✅
 │   │   ├── pages/
 │   │   │   ├── Home.tsx         # Home page 🟡
-│   │   │   └── Settings.tsx     # Settings page ✅
+│   │   │   ├── Settings.tsx     # System Settings page (2×2 grid) ✅
+│   │   │   └── Prompts.tsx      # AI Prompts page (tile grid) ✅
 │   │   └── services/
 │   │       └── api.ts           # Axios client ✅
 │   ├── package.json

@@ -84,7 +84,13 @@ export default function DataSourceManager() {
 
   return (
     <div className="data-source-manager">
-      <h3>X/Twitter Lists</h3>
+      <div className="data-source-header">
+        <h3>X/Twitter Lists</h3>
+        <div className="data-source-actions">
+          <button className="btn-secondary">Import Lists</button>
+          <button className="btn-secondary">Export Lists</button>
+        </div>
+      </div>
 
       <div className="add-list-form">
         <h4>+ Add New List</h4>

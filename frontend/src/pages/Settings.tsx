@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { settingsApi, listsApi, adminApi } from '../services/api';
+import { settingsApi, listsApi, adminApi, promptsApi } from '../services/api';
 import DataSourceManager from '../components/DataSourceManager';
-import Prompts from './Prompts';
+import SettingsNav from '../components/SettingsNav';
+import PromptTile from '../components/PromptTile';
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState<string>('data-sources');
   const [nextRunTime, setNextRunTime] = useState<string | null>(null);
   const [ingestInterval, setIngestInterval] = useState(30);
   const [archiveAgeDays, setArchiveAgeDays] = useState(7);
@@ -18,9 +18,11 @@ export default function Settings() {
   const [enabledCategories, setEnabledCategories] = useState<string[]>([
     'Technology', 'Politics', 'Business', 'Science', 'Health', 'Other'
   ]);
-  const [schedulerPaused, setSchedulerPaused] = useState(false);
   const [autoFetchEnabled, setAutoFetchEnabled] = useState(true);
   const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
+  const [worthinessPrompt, setWorthinessPrompt] = useState<any>(null);
+  const [duplicatePrompt, setDuplicatePrompt] = useState<any>(null);
+  const [categorizePrompt, setCategorizePrompt] = useState<any>(null);
 
   useEffect(() => {
     loadSchedulerStatus();
@@ -48,6 +50,25 @@ export default function Settings() {
   useEffect(() => {
     loadAutoFetchSetting();
   }, []);
+
+  useEffect(() => {
+    loadPrompts();
+  }, []);
+
+  const loadPrompts = async () => {
+    try {
+      const [worthiness, duplicate, categorize] = await Promise.all([
+        promptsApi.getByKey('score_worthiness'),
+        promptsApi.getByKey('detect_duplicate'),
+        promptsApi.getByKey('categorize_post')
+      ]);
+      setWorthinessPrompt(worthiness.data);
+      setDuplicatePrompt(duplicate.data);
+      setCategorizePrompt(categorize.data);
+    } catch (error) {
+      console.error('Failed to load prompts:', error);
+    }
+  };
 
   const loadEnabledCategories = async () => {
     try {
@@ -90,7 +111,6 @@ export default function Settings() {
   const loadSchedulerStatus = async () => {
     try {
       const response = await adminApi.getSchedulerStatus();
-      setSchedulerPaused(response.data.paused);
 
       const ingestJob = response.data.jobs.find((j: any) => j.id === 'ingest_posts');
       if (ingestJob && ingestJob.next_run_time) {
@@ -129,24 +149,6 @@ export default function Settings() {
       setOperationFeedback('✗ Archival failed');
       setTimeout(() => setOperationFeedback(null), 3000);
       console.error('Failed to trigger archive:', error);
-    }
-  };
-
-  const handleToggleScheduler = async () => {
-    try {
-      if (schedulerPaused) {
-        await adminApi.resumeScheduler();
-        setOperationFeedback('✓ Scheduler resumed');
-      } else {
-        await adminApi.pauseScheduler();
-        setOperationFeedback('✓ Scheduler paused');
-      }
-      setTimeout(() => setOperationFeedback(null), 3000);
-      loadSchedulerStatus();
-    } catch (error) {
-      setOperationFeedback('✗ Failed to toggle scheduler');
-      setTimeout(() => setOperationFeedback(null), 3000);
-      console.error('Failed to toggle scheduler:', error);
     }
   };
 
@@ -190,300 +192,210 @@ export default function Settings() {
   return (
     <div className="settings-container">
       <h1>Settings</h1>
+      <SettingsNav />
 
-      <div className="tabs">
-        <button
-          className={activeTab === 'data-sources' ? 'active' : ''}
-          onClick={() => setActiveTab('data-sources')}
-        >
-          Data Sources
-        </button>
-        <button
-          className={activeTab === 'scheduling' ? 'active' : ''}
-          onClick={() => setActiveTab('scheduling')}
-        >
-          Scheduling
-        </button>
-        <button
-          className={activeTab === 'content-filtering' ? 'active' : ''}
-          onClick={() => setActiveTab('content-filtering')}
-        >
-          Content Filtering
-        </button>
-        <button
-          className={activeTab === 'system-control' ? 'active' : ''}
-          onClick={() => setActiveTab('system-control')}
-        >
-          System Control
-        </button>
-        <button
-          className={activeTab === 'prompts' ? 'active' : ''}
-          onClick={() => setActiveTab('prompts')}
-        >
-          AI Prompts
-        </button>
-      </div>
+      <div className="settings-grid">
+        <section className="settings-tile">
+          <h2>Data Sources</h2>
+          <DataSourceManager />
+        </section>
+        <section className="settings-tile">
+          <h2>Content Filtering</h2>
 
-      <div className="tab-content">
-        {activeTab === 'data-sources' && (
-          <div>
-            <h2>Data Sources</h2>
-            <DataSourceManager />
-          </div>
-        )}
-        {activeTab === 'scheduling' && (
-          <div>
-            <h2>Scheduling</h2>
+          <div className="setting-group">
+              <h3>Worthiness</h3>
 
+              {worthinessPrompt && (
+                <div className="prompt-tile-container">
+                  <PromptTile prompt={worthinessPrompt} onUpdate={loadPrompts} />
+                </div>
+              )}
 
-            <div className="setting-group">
-              <h3>Automatic Post Fetching</h3>
-              <p>Control whether the system automatically fetches new posts from X lists.</p>
+              <div className="setting-subgroup">
+                <h4>Worthiness Threshold</h4>
+                <p>Control how selective the AI is when recommending posts for article generation.</p>
 
-              <div className="scheduler-controls">
-                <button
-                  className={`scheduler-toggle ${autoFetchEnabled ? 'running' : 'paused'}`}
-                  onClick={handleToggleAutoFetch}
-                >
-                  {autoFetchEnabled ? '⏸ Disable Auto-Fetch' : '▶ Enable Auto-Fetch'}
-                </button>
+                <label>
+                  Minimum Worthiness Score:
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={worthinessThreshold}
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value);
+                      setWorthinessThreshold(value);
+                    }}
+                    onMouseUp={() => updateSetting('worthiness_threshold', worthinessThreshold.toString())}
+                    onTouchEnd={() => updateSetting('worthiness_threshold', worthinessThreshold.toString())}
+                  />
+                  <span className="threshold-value">{worthinessThreshold.toFixed(2)}</span>
+                </label>
 
                 <p className="help-text">
-                  Status: <strong>{autoFetchEnabled ? 'ENABLED' : 'DISABLED'}</strong>
+                  Current threshold: {worthinessThreshold.toFixed(2)} (0 = show all, 1 = only best)
                   <br />
-                  {autoFetchEnabled
-                    ? 'System will automatically fetch posts at the configured interval.'
-                    : 'Automatic fetching is disabled. Use manual trigger in System Control.'}
+                  {worthinessThreshold < 0.4 && (
+                    <strong style={{ color: '#dc3545' }}>Very permissive - most posts will be recommended</strong>
+                  )}
+                  {worthinessThreshold >= 0.4 && worthinessThreshold < 0.7 && (
+                    <strong style={{ color: '#ffc107' }}>Balanced - moderate filtering</strong>
+                  )}
+                  {worthinessThreshold >= 0.7 && (
+                    <strong style={{ color: '#28a745' }}>Strict - only high-quality posts recommended</strong>
+                  )}
                 </p>
               </div>
             </div>
 
             <div className="setting-group">
-              <h3>Ingestion Interval</h3>
-              <p>Control how often the system fetches new posts from X lists.</p>
+              <h3>Duplicate Detection</h3>
 
-              <label>
-                Interval (minutes):
-                <select
-                  onChange={(e) => updateSetting('ingest_interval_minutes', e.target.value)}
-                  defaultValue="30"
-                >
-                  <option value="5">Every 5 minutes</option>
-                  <option value="15">Every 15 minutes</option>
-                  <option value="30">Every 30 minutes</option>
-                  <option value="60">Every 1 hour</option>
-                  <option value="120">Every 2 hours</option>
-                  <option value="360">Every 6 hours</option>
-                </select>
-              </label>
-
-              {nextRunTime && (
-                <p className="help-text next-run">
-                  Next run: in {nextRunTime}
-                </p>
-              )}
-
-              <p className="help-text">
-                Changes apply to next scheduled job (no restart required)
-              </p>
-            </div>
-
-            <div className="setting-group">
-              <h3>Archival Settings</h3>
-              <p>Configure automatic archival of old unselected posts.</p>
-
-              <label>
-                Archive Age (days):
-                <input
-                  type="number"
-                  min="1"
-                  max="30"
-                  value={archiveAgeDays}
-                  onChange={(e) => {
-                    setArchiveAgeDays(parseInt(e.target.value));
-                    loadArchivePreview();
-                  }}
-                  onBlur={() => updateSetting('archive_age_days', archiveAgeDays.toString())}
-                />
-              </label>
-
-              <label>
-                Archive Time:
-                <input
-                  type="time"
-                  value={archiveTime}
-                  onChange={(e) => {
-                    setArchiveTime(e.target.value);
-                    const hour = new Date(`1970-01-01T${e.target.value}`).getHours();
-                    updateSetting('archive_time_hour', hour.toString());
-                  }}
-                />
-              </label>
-
-              <p className="help-text">
-                Posts older than {archiveAgeDays} days will be archived at {archiveTime}
-              </p>
-
-              {archivePreviewCount !== null && (
-                <div className="archive-preview">
-                  <strong>Posts eligible for archival:</strong> {archivePreviewCount}
+              {duplicatePrompt && (
+                <div className="prompt-tile-container">
+                  <PromptTile prompt={duplicatePrompt} onUpdate={loadPrompts} />
                 </div>
               )}
-            </div>
 
-            <div className="setting-group">
-              <h3>Posts Per Fetch</h3>
-              <p>Control how many posts are fetched from each list per cycle.</p>
+              <div className="setting-subgroup">
+                <h4>Duplicate Detection Threshold</h4>
+                <p>Control how similar posts must be to be grouped as duplicates.</p>
 
-              <label>
-                Posts per fetch:
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={postsPerFetch}
-                  onChange={(e) => {
-                    const value = parseInt(e.target.value);
-                    setPostsPerFetch(value);
-                    calculateApiRate(value, ingestInterval, enabledListsCount);
-                  }}
-                  onBlur={() => updateSetting('posts_per_fetch', postsPerFetch.toString())}
-                />
-              </label>
+                <label>
+                  Similarity Threshold:
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="1"
+                    step="0.05"
+                    value={duplicateThreshold}
+                    onChange={(e) => {
+                      const value = parseFloat(e.target.value);
+                      setDuplicateThreshold(value);
+                    }}
+                    onMouseUp={() => updateSetting('duplicate_threshold', duplicateThreshold.toString())}
+                    onTouchEnd={() => updateSetting('duplicate_threshold', duplicateThreshold.toString())}
+                  />
+                  <span className="threshold-value">{duplicateThreshold.toFixed(2)}</span>
+                </label>
 
-              <div className="api-rate-calculator">
-                <strong>Estimated API calls per hour:</strong> {estimatedApiCalls}
-                <p className="calc-formula">
-                  Formula: {postsPerFetch} posts × {enabledListsCount} lists × {60 / ingestInterval} cycles/hour = {estimatedApiCalls} calls/hour
+                <p className="help-text">
+                  Current threshold: {duplicateThreshold.toFixed(2)} (0.5 = loose, 1.0 = exact match)
+                  <br />
+                  {duplicateThreshold < 0.7 && (
+                    <strong style={{ color: '#dc3545' }}>Loose - similar posts grouped together</strong>
+                  )}
+                  {duplicateThreshold >= 0.7 && duplicateThreshold < 0.9 && (
+                    <strong style={{ color: '#28a745' }}>Balanced - recommended setting</strong>
+                  )}
+                  {duplicateThreshold >= 0.9 && (
+                    <strong style={{ color: '#ffc107' }}>Strict - only near-identical posts grouped</strong>
+                  )}
                 </p>
               </div>
-
-              {estimatedApiCalls > 50 && (
-                <div className="warning">
-                  Warning: High API call rate may exceed X API limits
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-        {activeTab === 'content-filtering' && (
-          <div>
-            <h2>Content Filtering</h2>
-
-            <div className="setting-group">
-              <h3>Worthiness Threshold</h3>
-              <p>Control how selective the AI is when recommending posts for article generation.</p>
-
-              <label>
-                Minimum Worthiness Score:
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={worthinessThreshold}
-                  onChange={(e) => {
-                    const value = parseFloat(e.target.value);
-                    setWorthinessThreshold(value);
-                  }}
-                  onMouseUp={() => updateSetting('worthiness_threshold', worthinessThreshold.toString())}
-                  onTouchEnd={() => updateSetting('worthiness_threshold', worthinessThreshold.toString())}
-                />
-                <span className="threshold-value">{worthinessThreshold.toFixed(2)}</span>
-              </label>
-
-              <p className="help-text">
-                Current threshold: {worthinessThreshold.toFixed(2)} (0 = show all, 1 = only best)
-                <br />
-                {worthinessThreshold < 0.4 && (
-                  <strong style={{ color: '#dc3545' }}>Very permissive - most posts will be recommended</strong>
-                )}
-                {worthinessThreshold >= 0.4 && worthinessThreshold < 0.7 && (
-                  <strong style={{ color: '#ffc107' }}>Balanced - moderate filtering</strong>
-                )}
-                {worthinessThreshold >= 0.7 && (
-                  <strong style={{ color: '#28a745' }}>Strict - only high-quality posts recommended</strong>
-                )}
-              </p>
-            </div>
-
-            <div className="setting-group">
-              <h3>Duplicate Detection Threshold</h3>
-              <p>Control how similar posts must be to be grouped as duplicates.</p>
-
-              <label>
-                Similarity Threshold:
-                <input
-                  type="range"
-                  min="0.5"
-                  max="1"
-                  step="0.05"
-                  value={duplicateThreshold}
-                  onChange={(e) => {
-                    const value = parseFloat(e.target.value);
-                    setDuplicateThreshold(value);
-                  }}
-                  onMouseUp={() => updateSetting('duplicate_threshold', duplicateThreshold.toString())}
-                  onTouchEnd={() => updateSetting('duplicate_threshold', duplicateThreshold.toString())}
-                />
-                <span className="threshold-value">{duplicateThreshold.toFixed(2)}</span>
-              </label>
-
-              <p className="help-text">
-                Current threshold: {duplicateThreshold.toFixed(2)} (0.5 = loose, 1.0 = exact match)
-                <br />
-                {duplicateThreshold < 0.7 && (
-                  <strong style={{ color: '#dc3545' }}>Loose - similar posts grouped together</strong>
-                )}
-                {duplicateThreshold >= 0.7 && duplicateThreshold < 0.9 && (
-                  <strong style={{ color: '#28a745' }}>Balanced - recommended setting</strong>
-                )}
-                {duplicateThreshold >= 0.9 && (
-                  <strong style={{ color: '#ffc107' }}>Strict - only near-identical posts grouped</strong>
-                )}
-              </p>
             </div>
 
             <div className="setting-group">
               <h3>Category Filters</h3>
-              <p>Control which content categories are processed by the system.</p>
 
-              <div className="category-filters">
-                {['Technology', 'Politics', 'Business', 'Science', 'Health', 'Other'].map(category => (
-                  <label key={category} className="category-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={enabledCategories.includes(category)}
-                      onChange={() => toggleCategory(category)}
-                    />
-                    <span>{category}</span>
-                  </label>
-                ))}
+              {categorizePrompt && (
+                <div className="prompt-tile-container">
+                  <PromptTile prompt={categorizePrompt} onUpdate={loadPrompts} />
+                </div>
+              )}
+
+              <div className="setting-subgroup">
+                <h4>Category Selection</h4>
+                <p>Control which content categories are processed by the system.</p>
+
+                <div className="category-filters">
+                  {['Technology', 'Politics', 'Business', 'Science', 'Health', 'Other'].map(category => (
+                    <label key={category} className="category-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={enabledCategories.includes(category)}
+                        onChange={() => toggleCategory(category)}
+                      />
+                      <span>{category}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <p className="help-text">
+                  Only posts in enabled categories will be processed and displayed.
+                  <br />
+                  <strong>{enabledCategories.length} of 6 categories enabled</strong>
+                </p>
               </div>
-
-              <p className="help-text">
-                Only posts in enabled categories will be processed and displayed.
-                <br />
-                <strong>{enabledCategories.length} of 6 categories enabled</strong>
-              </p>
             </div>
-          </div>
-        )}
-        {activeTab === 'system-control' && (
-          <div>
-            <h2>System Control</h2>
+        </section>
+        <section className="settings-tile">
+          <h2>System Control</h2>
 
-            {operationFeedback && (
+          {operationFeedback && (
               <div className={`operation-feedback ${operationFeedback.includes('✓') ? 'success' : operationFeedback.includes('✗') ? 'error' : 'info'}`}>
                 {operationFeedback}
               </div>
             )}
 
             <div className="setting-group">
-              <h3>Manual Operations</h3>
-              <p>Trigger background jobs manually without waiting for the scheduler.</p>
+              <h3>Ingestion</h3>
 
-              <div className="manual-operations">
+              <div className="setting-subgroup">
+                <h4>Auto-Fetch Enabled/Disabled</h4>
+                <p>Control whether the system automatically fetches new posts from X lists.</p>
+
+                <div className="scheduler-controls">
+                  <button
+                    className={`scheduler-toggle ${autoFetchEnabled ? 'running' : 'paused'}`}
+                    onClick={handleToggleAutoFetch}
+                  >
+                    {autoFetchEnabled ? '⏸ Disable Auto-Fetch' : '▶ Enable Auto-Fetch'}
+                  </button>
+
+                  <p className="help-text">
+                    Status: <strong>{autoFetchEnabled ? 'ENABLED' : 'DISABLED'}</strong>
+                    <br />
+                    {autoFetchEnabled
+                      ? 'System will automatically fetch posts at the configured interval.'
+                      : 'Automatic fetching is disabled. Use manual trigger below.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="setting-subgroup">
+                <h4>Ingestion Interval</h4>
+                <p>Control how often the system fetches new posts from X lists.</p>
+
+                <label>
+                  Interval (minutes):
+                  <select
+                    onChange={(e) => updateSetting('ingest_interval_minutes', e.target.value)}
+                    defaultValue="30"
+                  >
+                    <option value="5">Every 5 minutes</option>
+                    <option value="15">Every 15 minutes</option>
+                    <option value="30">Every 30 minutes</option>
+                    <option value="60">Every 1 hour</option>
+                    <option value="120">Every 2 hours</option>
+                    <option value="360">Every 6 hours</option>
+                  </select>
+                </label>
+
+                {nextRunTime && (
+                  <p className="help-text next-run">
+                    Next run: in {nextRunTime}
+                  </p>
+                )}
+
+                <p className="help-text">
+                  Changes apply to next scheduled job (no restart required)
+                </p>
+              </div>
+
+              <div className="setting-subgroup">
+                <h4>Manual Ingestion Trigger</h4>
                 <button
                   className="operation-button"
                   onClick={handleTriggerIngestion}
@@ -494,7 +406,91 @@ export default function Settings() {
                 <p className="operation-description">
                   Fetch new posts from all enabled X/Twitter lists immediately
                 </p>
+              </div>
 
+              <div className="setting-subgroup">
+                <h4>Posts Per Fetch</h4>
+                <p>Control how many posts are fetched from each list per cycle.</p>
+
+                <label>
+                  Posts per fetch:
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={postsPerFetch}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value);
+                      setPostsPerFetch(value);
+                      calculateApiRate(value, ingestInterval, enabledListsCount);
+                    }}
+                    onBlur={() => updateSetting('posts_per_fetch', postsPerFetch.toString())}
+                  />
+                </label>
+
+                <div className="api-rate-calculator">
+                  <strong>Estimated API calls per hour:</strong> {estimatedApiCalls}
+                  <p className="calc-formula">
+                    Formula: {postsPerFetch} posts × {enabledListsCount} lists × {60 / ingestInterval} cycles/hour = {estimatedApiCalls} calls/hour
+                  </p>
+                </div>
+
+                {estimatedApiCalls > 50 && (
+                  <div className="warning">
+                    Warning: High API call rate may exceed X API limits
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="setting-group">
+              <h3>Archival</h3>
+
+              <div className="setting-subgroup">
+                <h4>Archival Settings</h4>
+                <p>Configure automatic archival of old unselected posts.</p>
+
+                <label>
+                  Archive Age (days):
+                  <input
+                    type="number"
+                    min="1"
+                    max="30"
+                    value={archiveAgeDays}
+                    onChange={(e) => {
+                      setArchiveAgeDays(parseInt(e.target.value));
+                      loadArchivePreview();
+                    }}
+                    onBlur={() => updateSetting('archive_age_days', archiveAgeDays.toString())}
+                  />
+                </label>
+
+                <label>
+                  Archive Time:
+                  <input
+                    type="time"
+                    value={archiveTime}
+                    onChange={(e) => {
+                      setArchiveTime(e.target.value);
+                      const hour = new Date(`1970-01-01T${e.target.value}`).getHours();
+                      updateSetting('archive_time_hour', hour.toString());
+                    }}
+                  />
+                </label>
+
+                <p className="help-text">
+                  Posts older than {archiveAgeDays} days will be archived at {archiveTime}
+                </p>
+
+                {archivePreviewCount !== null && (
+                  <div className="archive-preview">
+                    <strong>Posts eligible for archival:</strong> {archivePreviewCount}
+                  </div>
+                )}
+              </div>
+
+              <div className="setting-subgroup">
+                <h4>Manual Archival Trigger</h4>
                 <button
                   className="operation-button"
                   onClick={handleTriggerArchive}
@@ -510,36 +506,7 @@ export default function Settings() {
                 </p>
               </div>
             </div>
-
-            <div className="setting-group">
-              <h3>Scheduler Control</h3>
-              <p>Pause or resume automatic background jobs.</p>
-
-              <div className="scheduler-controls">
-                <button
-                  className={`scheduler-toggle ${schedulerPaused ? 'paused' : 'running'}`}
-                  onClick={handleToggleScheduler}
-                  disabled={operationFeedback !== null}
-                >
-                  {schedulerPaused ? '▶ Resume Scheduler' : '⏸ Pause Scheduler'}
-                </button>
-
-                <p className="help-text">
-                  Status: <strong>{schedulerPaused ? 'PAUSED' : 'RUNNING'}</strong>
-                  <br />
-                  {schedulerPaused
-                    ? 'Scheduled jobs will not run. Manual operations still work.'
-                    : 'All scheduled jobs are running normally.'}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-        {activeTab === 'prompts' && (
-          <div>
-            <Prompts />
-          </div>
-        )}
+        </section>
       </div>
     </div>
   );

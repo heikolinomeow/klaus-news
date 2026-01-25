@@ -29,16 +29,16 @@ For the application to display content, posts must exist in the database. Posts 
 Before browsing posts, users can configure system behavior through the Settings page.
 
 ### 0.1 Access Settings
-**URL:** `http://localhost:3000/settings`
+**URL:** `http://localhost:3000/settings/system` (redirects from `/settings` for backward compatibility)
 
 **What Users See:**
-- Settings page with 4 main tabs: Data Sources, Scheduling, Content Filtering, System Control
+- Settings area with 2 main routes: System Settings (3 tiles: Data Sources, Content Filtering, System Control) and AI Prompts (6 tiles in responsive grid). Navigation tabs at top switch between routes.
 - Current configuration values displayed
 - Real-time validation feedback
 - Save buttons with confirmation messages
 
 ### 0.2 Manage Data Sources
-**User Action:** Click "Data Sources" tab
+**User Action:** Navigate to System Settings route (`/settings/system`), Data Sources tile is the first tile in the settings layout
 
 **What Users Experience:**
 - ✅ View all configured X/Twitter lists with last fetch timestamps
@@ -47,9 +47,12 @@ Before browsing posts, users can configure system behavior through the Settings 
 - ✅ Enable/disable lists without deleting them
 - ✅ Remove lists permanently with confirmation dialog
 - ✅ Color-coded status indicators (Green: recent fetch, Yellow: stale, Red: error)
+- ✅ Export all lists to JSON file with "Export Lists" button
+- ✅ Import lists from JSON file with "Import Lists" button (merge behavior)
+- ✅ Exported lists include list_id, list_name, enabled status, fetch_frequency
 
 ### 0.3 Control Scheduling
-**User Action:** Click "Scheduling" tab
+**User Action:** Navigate to System Settings route (`/settings/system`), System Control tile contains Ingestion section
 
 **What Users Experience:**
 - ✅ Adjust ingestion frequency (5 minutes to 6 hours)
@@ -58,10 +61,11 @@ Before browsing posts, users can configure system behavior through the Settings 
 - ✅ Set archival time (hour of day)
 - ✅ Adjust posts fetched per cycle (1-100)
 - ✅ See estimated API calls per hour
+- ✅ See auto-fetch status (Enabled/Paused) in System Control tab
 - ✅ Warning if settings exceed recommended limits
 
 ### 0.4 Configure AI Filtering
-**User Action:** Click "Content Filtering" tab
+**User Action:** Navigate to System Settings route (`/settings/system`), Content Filtering tile now includes embedded Prompt Management tiles for score_worthiness, detect_duplicate, and categorize_post prompts inline with threshold sliders and category checkboxes
 
 **What Users Experience:**
 - ✅ Adjust worthiness threshold slider (0.3 - 0.9)
@@ -72,15 +76,41 @@ Before browsing posts, users can configure system behavior through the Settings 
 - ✅ Reset to defaults button
 
 ### 0.5 Manual System Control
-**User Action:** Click "System Control" tab
+**User Action:** Navigate to System Settings route (`/settings/system`), System Control tile contains Ingestion and Archival sections with manual trigger buttons
 
 **What Users Experience:**
 - ✅ Trigger manual data ingestion with progress indicator
 - ✅ Trigger manual post archival with preview count
-- ✅ Pause/resume background scheduler
-- ✅ See scheduler status (Running/Paused)
 - ✅ View system statistics (database counts, last operations)
 - ✅ Confirmation dialogs for destructive actions
+
+### 0.6 Manage AI Prompts
+**User Action:** Navigate to AI Prompts route (`/prompts`), accessible via tab navigation at top of settings area
+
+**What Users Experience:**
+- ✅ All 6 AI prompts displayed simultaneously as tiles in responsive grid. Each tile shows full prompt configuration with inline editing (no modal/sidebar required).
+- ✅ Edit prompt text, model, temperature, max_tokens directly in tiles
+- ✅ Reset prompts to defaults with confirmation
+- ✅ Export all prompts to JSON file
+- ✅ Import prompts from JSON file (overwrites existing)
+- ✅ Changes take effect immediately (no restart required)
+- ✅ Character count for prompt text validation
+- ✅ Edit prompts directly in tiles (no modal—all fields visible inline). ✅ Per-tile Save and Reset buttons (independent editing, no global save).
+
+**UX Note:** All system settings tiles (Data Sources, Content Filtering, System Control) are visible simultaneously. No tab switching required—users can scroll within tiles if content exceeds tile height (max 600px).
+
+**0.7 Database Backup & Restore**
+**User Action:** Use command-line backup/restore scripts
+
+**What Users Experience:**
+- ✅ Run `./backup_db.sh` to create timestamped SQL backup in `./backups/` directory
+- ✅ Run `./restore_db.sh <backup_file.sql>` to restore from backup with confirmation prompt
+- ✅ Backups survive `docker-compose down -v` (stored outside volumes)
+- ✅ Scripts display backup size and success confirmation
+
+**UX Notes:**
+- Restore operation shows warning about data overwrite
+- Scripts require postgres container to be running
 
 ---
 
@@ -399,8 +429,10 @@ From a user perspective, the following experiences are not available:
 
 **Worthiness Scores:**
 - 0.0 to 1.0 scale (higher = better quality)
-- Combines relevance, quality, recency
+- Generated by AI prompt evaluating newsworthiness (v2.0: AI-based)
+- Falls back to algorithmic scoring (relevance 40%, quality 40%, recency 20%) if AI fails
 - Threshold: 0.6 for Recommended view
+- Editable prompt via Settings → Prompts tab
 
 **Articles (When Generated):**
 - Full-length articles (3-5 paragraphs)
@@ -439,6 +471,14 @@ From a user perspective, the following experiences are not available:
 - `POST /api/admin/pause-scheduler` - Pause background jobs
 - `POST /api/admin/resume-scheduler` - Resume background jobs
 - `GET /api/admin/scheduler-status` - Get scheduler state
+- `GET /api/lists/export` - Export lists to JSON
+- `POST /api/lists/import` - Import lists from JSON
+- `GET /api/prompts` - Get all prompts
+- `GET /api/prompts/{name}` - Get single prompt
+- `PUT /api/prompts/{name}` - Update prompt
+- `POST /api/prompts/{name}/reset` - Reset prompt to default
+- `GET /api/prompts/export` - Export prompts to JSON
+- `POST /api/prompts/import` - Import prompts from JSON
 
 ---
 

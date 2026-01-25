@@ -15,10 +15,10 @@
 **Mitigation:** Cache is invalidated on update, but race conditions possible
 
 ### Scheduler Pause State Persistence
-**Issue:** If user pauses scheduler and forgets to resume, system stops ingesting data
+**Issue:** UI no longer provides pause/resume scheduler control (removed in v2.1); scheduler control now only via auto_fetch_enabled setting
 **Risk:** High (7/10)
 **Behavior:** Paused state persists across backend restarts via database
-**Mitigation:** UI shows prominent warning banner when paused; recommend monitoring
+**Mitigation:** Auto-fetch can be disabled via toggle in System Control → Ingestion section; status clearly displayed
 
 ### Class-Level Cache in Multi-Process Deployments
 **Issue:** SettingsService uses class-level cache, not suitable for multi-process deployments
@@ -39,7 +39,7 @@
 **Mitigation:** Single-user system assumed; implement optimistic locking for multi-user
 
 ### Manual Trigger During Scheduled Job
-**Issue:** User can trigger manual ingestion while scheduled job is running
+**Issue:** User can trigger manual ingestion (System Control → Ingestion → Manual Ingestion Trigger) or archival (System Control → Archival → Manual Archival Trigger) while scheduled job is running
 **Risk:** Moderate-High (6/10)
 **Behavior:** May cause duplicate posts, race conditions, or database lock timeouts
 **Mitigation:** UI disables manual trigger button while job is running; check scheduler status before trigger
@@ -62,6 +62,48 @@
 **Behavior:** Posts appear/disappear from view based on new threshold
 **Mitigation:** Live preview shows impact before saving; reversible change
 
+### Settings Route Migration
+**Issue:** Users may have bookmarked `/settings` which no longer exists as a direct page
+**Risk:** Low (2/10)
+**Behavior:** Old `/settings` URL should redirect to `/settings/system` for backward compatibility
+**Mitigation:** Implement redirect in App.tsx routing; update documentation and external links
+
+### Tile Content Overflow
+**Issue:** Very long content in tiles may require scrolling, potentially hiding important controls
+**Risk:** Low (3/10)
+**Behavior:** Tiles have max-height (600px for settings, 400px for prompts) with overflow-y: auto
+**Mitigation:** Most critical controls placed near top of tiles; users can scroll within tiles without affecting page layout
+
+### Settings Page Restructuring
+**Issue:** Users familiar with previous 2×2 grid layout may need to relearn tile locations
+**Risk:** Low (2/10)
+**Behavior:** Scheduling controls now in System Control → Ingestion section; PromptTiles now embedded in Content Filtering sections
+**Mitigation:** Intuitive section names and clear visual hierarchy; all controls remain accessible
+
+### Invalid Prompts Breaking AI Operations
+**Issue:** Users can edit prompts to invalid or empty text, breaking AI functionality
+**Risk:** Critical (9/10)
+**Behavior:** Empty or malformed prompts cause OpenAI API errors, blocking ingestion/article generation
+**Mitigation:** UI validation prevents empty prompts; Reset to Default button available; fallback to hardcoded defaults if database entry missing
+
+### Concurrent Prompt Editing
+**Issue:** Multiple tiles editable simultaneously, user may forget unsaved changes in one tile while editing another
+**Risk:** Low (2/10)
+**Behavior:** Each tile has independent Save button; no indication of unsaved changes in other tiles
+**Mitigation:** Per-tile save prevents losing all work if one save fails; consider adding visual indicator for unsaved changes in future
+
+### Prompt Changes Immediate Effect
+**Issue:** Prompt edits take effect immediately without preview or staging
+**Risk:** Medium (5/10)
+**Behavior:** Bad prompt can immediately affect all new posts ingested
+**Mitigation:** Export prompts before editing (manual versioning); Reset to Default available
+
+### No Prompt Change History
+**Issue:** Cannot view previous prompt versions or revert changes
+**Risk:** Medium (4/10)
+**Behavior:** If user edits prompt and forgets original, must reset to default (loses custom tuning)
+**Mitigation:** Recommend exporting prompts before major changes; implement audit log in future
+
 ## Article Generation
 
 ### Missing Article Workflow UI
@@ -71,12 +113,38 @@
 **Mitigation:** Priority development task; estimate 2-3 days to complete
 
 ### Duplicate Post Protection
-**Issue:** TF-IDF similarity scales O(n) with post count
-**Risk:** Low (2/10) - performance concern
-**Behavior:** Slowdown possible with >10,000 non-archived posts
-**Mitigation:** Archive posts older than 7 days; consider approximate nearest neighbors for large datasets
+**Issue:** AI-based duplicate detection scales O(n) with post count and increases API costs
+**Risk:** Medium (5/10) - performance and cost concern
+**Behavior:**
+- Each new post compared against up to 50 recent posts (configurable via duplicate_check_limit)
+- 10-50 API calls per post in worst case
+- Slowdown and cost increase with high post volume
+**Mitigation:**
+- Limit comparison to 50 recent posts
+- Only compare within same category (reduces API calls)
+- Cache results per post pair
+- Fallback to TF-IDF if AI fails (performance safety net)
+- Archive posts older than 7 days to reduce comparison pool
 
 ## Database & Persistence
+
+### Backup Script Dependencies
+**Issue:** backup_db.sh and restore_db.sh require postgres container to be running
+**Risk:** Medium (5/10)
+**Behavior:** Scripts fail with "container not found" if postgres container is stopped
+**Mitigation:** Check `docker-compose ps` before running scripts; scripts should validate container state
+
+### Restore Overwrites All Data
+**Issue:** restore_db.sh drops entire database and recreates from backup (destructive)
+**Risk:** High (8/10)
+**Behavior:** All data created since backup timestamp is permanently lost
+**Mitigation:** Confirmation prompt warns user; recommend creating fresh backup before restore
+
+### Backups Not Automatically Scheduled
+**Issue:** Daily backup cron job (setup_cron.sh) not configured by default
+**Risk:** Medium (6/10)
+**Behavior:** Users must manually run backup_db.sh or configure cron themselves
+**Mitigation:** Document cron setup in deployment playbook; provide setup_cron.sh script
 
 ### No Migration System
 **Issue:** Database schema changes require manual SQL execution
@@ -90,11 +158,33 @@
 **Behavior:** Settings page shows defaults if database not initialized
 **Mitigation:** Provide migration script; document in deployment playbook
 
+### v2.0 AI Cost Increase
+**Issue:** v2.0 features significantly increase OpenAI API costs (~$7/month → ~$20-70/month)
+**Risk:** High (7/10) - budget impact
+**Behavior:**
+- Worthiness scoring: +1 API call per post (~$0.60/month for 3000 posts)
+- Duplicate detection: +10-50 API calls per post (~$60/month for 3000 posts with 10 avg comparisons)
+- Total increase: ~$60/month without optimizations
+**Mitigation:**
+- Use gpt-3.5-turbo for duplicate detection (saves ~$45/month)
+- Reduce duplicate_check_limit from 50 to 20 (saves ~$24/month)
+- Only run duplicate check on high-worthiness posts (>0.7 threshold, saves ~$30-40/month)
+- With optimizations: estimated ~$20-25/month total
+
+### AI Rate Limits
+**Issue:** High post volume can hit OpenAI API rate limits (especially duplicate detection)
+**Risk:** Medium (6/10)
+**Behavior:** API returns 429 errors, ingestion slows or fails
+**Mitigation:** Duplicate detection has fallback to TF-IDF; implement exponential backoff; monitor rate limit headers
+
 ## Known Limitations
 
 - **Single-user assumption:** No authentication, no multi-user permissions
 - **No settings history:** Cannot view previous setting values or audit log
 - **No rollback mechanism:** Setting changes cannot be undone (except manual reset to defaults)
-- **No backup/restore:** Settings export/import not implemented
+- **Backup/restore for database:** ✅ Implemented (v2.0: backup_db.sh, restore_db.sh)
+- **Export/import for lists:** ✅ Implemented (v2.0: GET /api/lists/export, POST /api/lists/import)
+- **Export/import for prompts:** ✅ Implemented (v2.0: GET /api/prompts/export, POST /api/prompts/import)
+- **Settings export/import:** Not implemented (system_settings table export/import not available)
 - **Per-list scheduling not supported:** All lists share same ingestion interval
 - **Fixed categories:** Cannot add custom categories beyond predefined 6
