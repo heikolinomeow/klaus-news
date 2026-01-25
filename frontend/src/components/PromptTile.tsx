@@ -73,7 +73,7 @@ export default function PromptTile({ prompt, onUpdate }: PromptTileProps) {
       <div className="form-group">
         <label>Prompt Text</label>
         <textarea
-          rows={6}
+          rows={15}
           value={promptText}
           onChange={(e) => setPromptText(e.target.value)}
         />
