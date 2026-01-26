@@ -1,150 +1,130 @@
-# Settings Page Restructuring
+# AI-Powered Duplicate Detection via Title Semantic Comparison
 
-## Scope
-Frontend-only changes to the Settings page at `http://localhost:3000/settings/system`.
+## 1. Problem Statement
 
----
-
-## 1. System Control Tile Consolidation
-
-### 1.1 Merge Scheduling and System Control Tiles
+### 1.1 Current Implementation Limitations
 
 **Requirement (Merged Narrative)**
 
-The Settings page currently displays two separate tiles on the right side: "Scheduling" and "System Control". These must be merged into a single unified tile named "System Control".
+The current duplicate detection system compares raw tweet text using TF-IDF. This approach is noisy because tweets contain hashtags, mentions, links, emoji, and different writing styles. Two tweets about the same story often don't match well.
 
-**Acceptance Criteria**
-- Only one tile labeled "System Control" appears in the settings interface
-- All functionality from both original tiles is preserved within the merged tile
-- The original "Scheduling" and "System Control" tiles no longer exist as separate entities
+The current data model stores posts with a `group_id` (just a UUID). When comparing a new post, the system has no clear logic for what to compare against—all posts in a group, the first post, or a random post. There is no clear "representative" for each story.
 
 **Constraints / Non-Goals**
-- Frontend changes only; no backend modifications
+
+The current approach using TF-IDF on noisy tweets is insufficient for accurate duplicate detection.
 
 ---
 
-### 1.2 System Control: Ingestion Section
+## 2. Proposed Solution
+
+### 2.1 Detection Method
 
 **Requirement (Merged Narrative)**
 
-Within the merged System Control tile, create an "Ingestion" section with the following controls presented in order:
+Replace TF-IDF comparison with AI semantic comparison of AI-generated titles. The system already generates AI titles for incoming posts. These titles extract the core topic and normalize the noise—for example, "BREAKING: Apple launches iPhone 16! 🔥 #Apple" and "Apple just announced new iPhone 16 https://..." both become "Apple Announces iPhone 16."
 
-1. A toggle control labeled "Auto-Fetch Enabled/Disabled"
-2. An ingestion interval selector
-3. A button to trigger ingestion immediately
-4. A "posts per fetch" configuration control
+Use a cheap AI model (GPT-4o-mini, approximately $0.002 per post) to semantically compare titles using the prompt: "Are these about the same news story? YES/NO"
+
+Compare within category and last 7 days only. This constraint reduces cost and improves accuracy.
 
 **Acceptance Criteria**
-- Section displays the sub-headline "Ingestion"
-- All four controls appear in the specified vertical order
-- Toggle allows enabling/disabling auto-fetch
-- Ingestion can be triggered manually via button
-- Interval and posts-per-fetch settings are configurable
+
+- AI titles are generated for incoming posts (already implemented)
+- GPT-4o-mini performs semantic comparison of titles
+- Comparison uses the prompt: "Are these about the same news story? YES/NO"
+- Comparison is scoped to same category and last 7 days only
 
 **Constraints / Non-Goals**
-- Frontend changes only
+
+- Cost per post: approximately $0.002 using GPT-4o-mini
+- Comparison limited to category and 7-day window
 
 ---
 
-### 1.3 System Control: Archival Section
+### 2.2 Hybrid Detection Flow
 
 **Requirement (Merged Narrative)**
 
-Below the Ingestion section, add an "Archival" section containing archival settings and a trigger button.
+Implement a 5-step hybrid flow for duplicate detection:
+
+1. SHA-256 check for exact duplicates (free, fast)
+2. Generate AI title (existing cost)
+3. AI semantic comparison of titles (negligible cost)
+4. Assign post to existing group or create new one
+5. Generate summary (existing cost)
 
 **Acceptance Criteria**
-- Section displays the sub-headline "Archival"
-- Archival settings are displayed
-- A button to "trigger archival now" is present
 
-**Constraints / Non-Goals**
-- Frontend changes only
+- SHA-256 exact match check executes first
+- AI title generation occurs for non-exact matches
+- AI semantic comparison determines grouping
+- Posts are assigned to groups or new groups are created
+- Summary generation occurs after grouping
 
 ---
 
-### 1.4 Remove Scheduler Control Button
+## 3. Architectural Changes
+
+### 3.1 Groups as First-Class Entities
 
 **Requirement (Merged Narrative)**
 
-The scheduler control button must be removed from the interface.
+Introduce a Groups table as an explicit entity representing a news story. The Groups table contains:
+
+- Representative title (canonical version)
+- Category
+- First seen timestamp
+- Post count
+
+The Posts table contains individual instances belonging to a group. Each post has its own `ai_title` and references a group via foreign key.
+
+The mental model: Every incoming post either joins an existing group or becomes a new group.
 
 **Acceptance Criteria**
-- Scheduler control button no longer appears in the UI
 
----
-
-## 2. Content Filtering Tile Restructuring
-
-### 2.1 Scope
-
-**Requirement (Merged Narrative)**
-
-The "Content Filtering" tile requires UI-only restructuring to integrate AI prompt management tiles directly into the filtering interface.
+- Groups table exists with fields: representative title, category, first seen timestamp, post count
+- Posts table has foreign key reference to Groups
+- Each post stores its own `ai_title`
+- Incoming posts are assigned to existing groups or create new groups
 
 **Constraints / Non-Goals**
-- UI changes only; no backend modifications
+
+- This replaces the current broken model where posts have `group_id` with no clear representative
 
 ---
 
-### 2.2 Worthiness Section
+## 4. UX Improvements
+
+### 4.1 Group-Based Display
 
 **Requirement (Merged Narrative)**
 
-Create a "Worthiness" section within the Content Filtering tile. Display the Prompt Management tile (currently located under AI Prompts) for `score_worthiness`, followed by the associated slider control.
+Replace the current UX where PostList shows one post per `group_id` and hidden duplicates are invisible with no context about how many similar posts exist.
+
+The new UX displays groups as cards with a representative title. A badge shows post count (e.g., "5 posts about this story"). Users can click to expand and see all variations. This allows users to understand story popularity and coverage, and to pick which version to use for article generation.
 
 **Acceptance Criteria**
-- Section displays the sub-headline "Worthiness"
-- Prompt Management tile for `score_worthiness` appears in this section
-- The worthiness threshold slider appears below the Prompt Management tile
+
+- Groups are displayed as cards with representative title
+- Badge displays post count in format "N posts about this story"
+- Users can click to expand and view all post variations
+- Users can select which post version to use for article generation
 
 **Constraints / Non-Goals**
-- UI changes only
+
+- Current UX limitation: PostList shows one post per group_id, duplicates are invisible, no visibility into story depth
 
 ---
 
-### 2.3 Duplicate Detection Section
+## 5. Expected Benefits
 
 **Requirement (Merged Narrative)**
 
-Create a "Duplicate Detection" section below Worthiness. Display the Prompt Management tile (currently located under AI Prompts) for `detect_duplicate`, followed by the associated slider control.
+This approach delivers the following benefits:
 
-**Acceptance Criteria**
-- Section displays the sub-headline "Duplicate Detection"
-- Prompt Management tile for `detect_duplicate` appears in this section
-- The duplicate detection threshold slider appears below the Prompt Management tile
-
-**Constraints / Non-Goals**
-- UI changes only
-
----
-
-### 2.4 Category Filters Section
-
-**Requirement (Merged Narrative)**
-
-Create a "Category Filters" section below Duplicate Detection. Display the Prompt Management tile (currently located under AI Prompts) for `categorize_post`, followed by the category filter checkboxes.
-
-**Acceptance Criteria**
-- Section displays the sub-headline "Category Filters"
-- Prompt Management tile for `categorize_post` appears in this section
-- Category filter checkboxes appear below the Prompt Management tile
-
-**Constraints / Non-Goals**
-- UI changes only
-
----
-
-## Coverage Verification
-
-All source fragments have been integrated:
-- Merge of two tiles into "System Control" (lines 5-7)
-- Frontend-only scope (line 8)
-- System Control headline (line 9)
-- Ingestion sub-headline and four controls (lines 10-14)
-- Archival sub-headline, settings, and trigger (lines 16-18)
-- Remove scheduler control button (line 20)
-- Content Filtering tile scope (lines 22-23)
-- Worthiness section with prompt tile and slider (lines 24-26)
-- Duplicate Detection section with prompt tile and slider (lines 27-29)
-- Category Filters section with prompt tile and checkboxes (lines 30-32)
-- URL reference for context (line 3)
+- **Accuracy**: Semantic comparison on clean titles vs fuzzy matching on noisy tweets
+- **Cost**: Negligible (~$0.002/post for GPT-4o-mini)
+- **Scalability**: Compare against ~100 group titles, not ~1000 individual posts
+- **UX**: Clear story grouping, visibility into coverage depth
+- **Architecture**: Clean separation of concerns (Groups = topics, Posts = instances)

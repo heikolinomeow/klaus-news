@@ -80,6 +80,12 @@
 **Behavior:** Scheduling controls now in System Control → Ingestion section; PromptTiles now embedded in Content Filtering sections
 **Mitigation:** Intuitive section names and clear visual hierarchy; all controls remain accessible
 
+### V-5 Group-Centric UI Change
+**Issue:** Home page now shows Groups instead of individual Posts
+**Risk:** Low (2/10) - UX paradigm shift
+**Behavior:** Users see representative titles with post count badges; must expand to see individual posts
+**Mitigation:** More intuitive UX showing story depth; expand/collapse is familiar pattern
+
 ### Invalid Prompts Breaking AI Operations
 **Issue:** Users can edit prompts to invalid or empty text, breaking AI functionality
 **Risk:** Critical (9/10)
@@ -113,18 +119,18 @@
 **Mitigation:** Priority development task; estimate 2-3 days to complete
 
 ### Duplicate Post Protection
-**Issue:** AI-based duplicate detection scales O(n) with post count and increases API costs
+**Issue:** AI title comparison compares AI-generated titles, scoped to same category and last 7 days
 **Risk:** Medium (5/10) - performance and cost concern
 **Behavior:**
-- Each new post compared against up to 50 recent posts (configurable via duplicate_check_limit)
-- 10-50 API calls per post in worst case
+- Each new post compared against up to 50 recent posts in same category
+- API calls scale with number of candidates found
 - Slowdown and cost increase with high post volume
 **Mitigation:**
 - Limit comparison to 50 recent posts
 - Only compare within same category (reduces API calls)
-- Cache results per post pair
-- Fallback to TF-IDF if AI fails (performance safety net)
-- Archive posts older than 7 days to reduce comparison pool
+- 7-day time window reduces candidate pool
+- Uses cost-effective GPT-4o-mini model
+- Configurable threshold via Settings (higher = fewer matches = fewer subsequent comparisons)
 
 ## Database & Persistence
 
@@ -171,11 +177,17 @@
 - Only run duplicate check on high-worthiness posts (>0.7 threshold, saves ~$30-40/month)
 - With optimizations: estimated ~$20-25/month total
 
+### V-2 AI Title Comparison Cost
+**Issue:** AI semantic title comparison adds ~1 API call per candidate post comparison
+**Risk:** Medium (5/10) - cost scales with post volume
+**Behavior:** Each new post compared against up to 50 candidates (same category, last 7 days)
+**Mitigation:** Category+time filtering reduces candidate pool; GPT-4o-mini is cost-effective (~$0.002/comparison)
+
 ### AI Rate Limits
 **Issue:** High post volume can hit OpenAI API rate limits (especially duplicate detection)
 **Risk:** Medium (6/10)
 **Behavior:** API returns 429 errors, ingestion slows or fails
-**Mitigation:** Duplicate detection has fallback to TF-IDF; implement exponential backoff; monitor rate limit headers
+**Mitigation:** Duplicate detection uses cost-effective GPT-4o-mini; implement exponential backoff; monitor rate limit headers; category+time filtering reduces API calls
 
 ## Known Limitations
 

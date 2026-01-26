@@ -27,9 +27,8 @@ class Post(Base):
     categorization_score = Column(Float)
     worthiness_score = Column(Float)
 
-    # Topic grouping (Problem 2: group posts about same topic)
-    content_hash = Column(String, index=True)  # SHA-256 hash for exact duplicate detection
-    group_id = Column(String, index=True)  # For grouping duplicates/related posts
+    # Topic grouping (group posts about same topic via AI title comparison)
+    group_id = Column(Integer, index=True)  # FK to Groups.id
 
     # State
     archived = Column(Boolean, default=False, index=True)

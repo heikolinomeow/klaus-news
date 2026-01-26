@@ -38,7 +38,6 @@ async def ingest_posts_job():
     from app.database import SessionLocal
     from sqlalchemy import select
     from app.services.scoring import calculate_worthiness_score
-    from app.services.duplicate_detection import compute_content_hash, assign_group_id
     from app.services.settings_service import SettingsService  # V-27
 
     db = SessionLocal()
@@ -46,7 +45,6 @@ async def ingest_posts_job():
         # V-27: Read settings from database
         settings_svc = SettingsService(db)
         posts_per_fetch = settings_svc.get('posts_per_fetch', 5)
-        duplicate_threshold = settings_svc.get('duplicate_threshold', 0.85)
         scheduler_paused = settings_svc.get('scheduler_paused', False)
 
         # V-16: Check if scheduler is paused
@@ -103,44 +101,64 @@ async def ingest_posts_job():
                         raw_post['created_at']
                     )
 
-                # 3b. Topic grouping: compute content hash and group_id
-                content_hash = compute_content_hash(raw_post['text'])
+                # 3b. Topic grouping via AI semantic title comparison
+                # Read duplicate threshold from settings
+                duplicate_threshold = settings_svc.get('duplicate_threshold', 0.85)
 
-                # Get existing non-archived posts for similarity comparison
+                # Get existing non-archived posts for AI duplicate detection
                 existing_posts = db.execute(
                     select(Post).where(Post.archived == False)
                 ).scalars().all()
 
-                existing_data = [
-                    {
-                        "text": p.original_text,
-                        "content_hash": p.content_hash,
-                        "group_id": p.group_id
-                    }
-                    for p in existing_posts
-                    if p.content_hash and p.group_id
-                ]
-
-                # V-7: AI-based duplicate detection (up to 50 recent posts)
+                # V-2: AI semantic comparison of AI-generated titles
+                # Scoped to same category and last 7 days only
+                from datetime import datetime, timedelta, timezone
                 group_id = None
-                recent_for_check = existing_posts[:50]  # Limit to 50 posts for cost control
+                seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
-                for existing_post in recent_for_check:
+                # Filter candidates: same category + last 7 days only
+                category_match = cat_result['category']
+                candidates = [
+                    p for p in existing_posts
+                    if p.category == category_match
+                    and p.created_at and p.created_at >= seven_days_ago
+                    and p.ai_title  # Must have AI title for comparison
+                ][:50]  # Limit to 50 posts for cost control
+
+                for existing_post in candidates:
                     try:
-                        is_duplicate = await openai_client.detect_duplicate(
-                            new_post_text=raw_post['text'],
-                            existing_post_text=existing_post.original_text
+                        similarity_score = await openai_client.compare_titles_semantic(
+                            new_title=gen_result['title'],
+                            existing_title=existing_post.ai_title
                         )
-                        if is_duplicate:
+                        if similarity_score >= duplicate_threshold:
                             group_id = existing_post.group_id
                             break
                     except Exception as e:
-                        print(f"AI duplicate detection failed for post: {e}")
+                        print(f"AI title comparison failed for post: {e}")
                         continue
 
-                # Fallback: assign new group if no match found
-                if group_id is None:
-                    group_id = assign_group_id(raw_post['text'], content_hash, existing_data, duplicate_threshold)
+                # V-4: Create or update Group record
+                from app.models.group import Group
+
+                if group_id is not None:
+                    # Existing group found - increment post_count
+                    existing_group = db.execute(
+                        select(Group).where(Group.id == group_id)
+                    ).scalar_one_or_none()
+                    if existing_group:
+                        existing_group.post_count += 1
+                else:
+                    # No match found - create new Group
+                    new_group = Group(
+                        representative_title=gen_result['title'],
+                        category=cat_result['category'],
+                        first_seen=raw_post['created_at'],
+                        post_count=1
+                    )
+                    db.add(new_group)
+                    db.flush()  # Get the new group ID
+                    group_id = new_group.id
 
                 # 4. Store in database
                 new_post = Post(
@@ -153,7 +171,6 @@ async def ingest_posts_job():
                     ai_title=gen_result['title'],
                     ai_summary=gen_result['summary'],
                     worthiness_score=worthiness,
-                    content_hash=content_hash,
                     group_id=group_id
                 )
                 db.add(new_post)

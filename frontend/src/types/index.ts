@@ -52,3 +52,15 @@ export interface PostsResponse {
 export interface ArticlesResponse {
   articles: Article[];
 }
+
+export interface Group {
+  id: number;
+  representative_title: string;
+  category: string;
+  first_seen: string;
+  post_count: number;
+}
+
+export interface GroupsResponse {
+  groups: Group[];
+}

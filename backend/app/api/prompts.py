@@ -110,8 +110,8 @@ async def reset_prompt(prompt_key: str, db: Session = Depends(get_db)):
             "max_tokens": 50
         },
         "detect_duplicate": {
-            "prompt_text": "Compare these two posts. Are they about the same topic/story? Return ONLY: YES or NO.",
-            "model": "gpt-3.5-turbo",
+            "prompt_text": "Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.",
+            "model": "gpt-4o-mini",
             "temperature": 0.0,
             "max_tokens": 10
         },

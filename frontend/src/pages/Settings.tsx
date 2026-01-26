@@ -295,10 +295,10 @@ export default function Settings() {
 
                 <div className="setting-subgroup">
                   <h4>Duplicate Detection Threshold</h4>
-                  <p>Control how similar posts must be to be grouped as duplicates.</p>
+                  <p>Controls the AI confidence required to group posts as duplicates. Lower values mean more aggressive grouping.</p>
 
                   <label>
-                    Similarity Threshold:
+                    AI Confidence Threshold:
                     <input
                       type="range"
                       min="0.5"
@@ -316,16 +316,16 @@ export default function Settings() {
                   </label>
 
                   <p className="help-text">
-                    Current threshold: {duplicateThreshold.toFixed(2)} (0.5 = loose, 1.0 = exact match)
+                    Current threshold: {duplicateThreshold.toFixed(2)} (0.5 = aggressive grouping, 1.0 = strict matching)
                     <br />
                     {duplicateThreshold < 0.7 && (
-                      <strong style={{ color: '#dc3545' }}>Loose - similar posts grouped together</strong>
+                      <strong style={{ color: '#dc3545' }}>Aggressive - more posts grouped together</strong>
                     )}
                     {duplicateThreshold >= 0.7 && duplicateThreshold < 0.9 && (
                       <strong style={{ color: '#28a745' }}>Balanced - recommended setting</strong>
                     )}
                     {duplicateThreshold >= 0.9 && (
-                      <strong style={{ color: '#ffc107' }}>Strict - only near-identical posts grouped</strong>
+                      <strong style={{ color: '#ffc107' }}>Strict - only highly similar posts grouped</strong>
                     )}
                   </p>
                 </div>

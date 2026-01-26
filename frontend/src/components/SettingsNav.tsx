@@ -12,10 +12,10 @@ export default function SettingsNav() {
         System
       </Link>
       <Link
-        to="/prompts"
-        className={location.pathname === '/prompts' ? 'active' : ''}
+        to="/architecture"
+        className={location.pathname === '/architecture' ? 'active' : ''}
       >
-        AI Prompts
+        Architecture
       </Link>
     </nav>
   );

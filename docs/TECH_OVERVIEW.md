@@ -37,7 +37,7 @@ All components run in Docker containers orchestrated via Docker Compose.
 - **APScheduler 3.10**: ✅ Background job scheduler (2 jobs running: ingest, archive)
 - **httpx 0.26**: ✅ HTTP client for X API and Teams webhook
 - **OpenAI 1.10.0**: ✅ OpenAI Python client (fully configured and functional)
-- **scikit-learn**: ✅ TF-IDF vectorization for duplicate detection
+- **scikit-learn**: ✅ Machine learning utilities
 
 ### Frontend
 
@@ -80,9 +80,8 @@ CREATE TABLE posts (
     categorization_score FLOAT,  -- AI confidence 0-1
     worthiness_score FLOAT,      -- Quality score 0-1
 
-    -- Grouping (assigned during ingestion)
-    group_id VARCHAR,             -- UUID for duplicate groups
-    content_hash VARCHAR,         -- SHA-256 for exact duplicates
+    -- Grouping (assigned during ingestion via AI title comparison)
+    group_id INTEGER,             -- FK to Groups.id
 
     -- State
     archived BOOLEAN DEFAULT FALSE,
@@ -103,9 +102,8 @@ CREATE INDEX idx_group_id ON posts(group_id);
 
 **Technical Implementation:**
 - SQLAlchemy ORM model with full field mapping
-- `content_hash` uses SHA-256 for exact duplicate detection
-- `group_id` is UUID v4, assigned via duplicate detection algorithm
-- `worthiness_score` calculated via weighted formula (relevance 40%, quality 40%, recency 20%)
+- `group_id` assigned via AI semantic title comparison during ingestion
+- `worthiness_score` calculated via AI scoring (with algorithmic fallback)
 - Archived posts excluded from main queries via `archived=False` filter
 
 ---
@@ -241,6 +239,29 @@ CREATE TABLE articles (
 - `generation_count` tracks how many times article was regenerated
 - `posted_to_teams` timestamp prevents duplicate Teams posts
 - `research_summary` field exists but research not implemented
+
+---
+
+### Groups Table ✅ (V-4 NEW)
+
+Stores news story groups as first-class entities:
+
+```sql
+CREATE TABLE groups (
+    id SERIAL PRIMARY KEY,
+    representative_title VARCHAR NOT NULL,
+    category VARCHAR NOT NULL,
+    first_seen TIMESTAMP NOT NULL,
+    post_count INTEGER DEFAULT 1 NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_groups_category ON groups(category);
+CREATE INDEX idx_groups_first_seen ON groups(first_seen);
+```
+
+**Location:** backend/app/models/group.py
 
 ---
 
@@ -466,6 +487,20 @@ CREATE TABLE articles (
 
 ---
 
+### Groups API (V-5 NEW)
+
+**✅ `GET /api/groups/`** - FULLY IMPLEMENTED
+- Returns all groups with representative titles and post counts
+- Ordered by first_seen DESC
+- **Location:** backend/app/api/groups.py
+
+**✅ `GET /api/groups/{group_id}/posts/`** - FULLY IMPLEMENTED
+- Returns all non-archived posts belonging to a specific group
+- Ordered by created_at DESC
+- **Location:** backend/app/api/groups.py
+
+---
+
 ### Health Checks
 
 **✅ `GET /health`** - Returns `{"status": "healthy", "app": "Klaus News"}`
@@ -609,109 +644,66 @@ class OpenAIClient:
   - `worthiness = 0.4 × relevance + 0.4 × quality + 0.2 × recency`
   - Prevents ingestion from breaking due to API issues
 
-#### 5. `detect_duplicate(new_post_text: str, existing_post_text: str)` ✅ (v2.0 NEW)
+#### 5. `detect_duplicate(new_post_text: str, existing_post_text: str)` ✅
 
 **How It Works:**
-- Prompt: Determines if two posts describe the same news story
-- Criteria: Same core event, same key entities, same fundamental message
-- Model: GPT-4-turbo (configurable via PromptService)
-- Temperature: 0.2 (very low for consistency)
-- Max tokens: 5
-- Returns: Boolean (True if duplicates, False if distinct)
-- Response format: "YES" or "NO"
+- Compares two posts for semantic similarity
+- Model: GPT-4o-mini (configurable via PromptService)
+- Temperature: 0.0 (deterministic)
+- Returns: Float (0.0-1.0 similarity score)
+- Higher score = more similar
 
-**Technical Detail:** Replaces pure TF-IDF cosine similarity approach
+**Note:** This method exists but is not used in the current ingestion flow. The scheduler uses `compare_titles_semantic()` instead.
 
-**Hybrid Strategy:**
-- Layer 1: SHA-256 hash for exact duplicates (unchanged)
-- Layer 2: AI duplicate detection for semantic duplicates (new)
-- Layer 3: TF-IDF fallback if AI call fails (safety net)
+#### 6. `compare_titles_semantic(new_title: str, existing_title: str)` ✅
 
-**Integration:**
-- Called during ingestion after SHA-256 check
-- Compares new post against up to 50 recent posts in same category
-- Caches results per post pair to avoid redundant calls
+**How It Works:**
+- Compares two AI-generated titles for semantic similarity
+- Model: GPT-4o-mini (cost-effective)
+- Prompt: Asks AI to rate similarity from 0.0 to 1.0
+- Returns: Float (0.0 = different topics, 1.0 = same story)
+- Result compared against `duplicate_threshold` setting (default 0.85)
+
+**Technical Detail:** Called during ingestion; only compares posts in same category within last 7 days, limited to 50 candidates for cost control.
 
 ---
 
 ### Duplicate Detection ✅
 
-**Location:** [backend/app/services/duplicate_detection.py](backend/app/services/duplicate_detection.py)
+**Location:** Implemented directly in [backend/app/services/scheduler.py](backend/app/services/scheduler.py) and [backend/app/services/openai_client.py](backend/app/services/openai_client.py)
 
-**Technical Implementation - 5-Step Algorithm:**
+**Technical Implementation - AI-Only Approach:**
 
-#### 1. Text Normalization ✅
-```python
-def normalize_text(text: str) -> str:
-    """Normalize text for comparison"""
-```
-- Remove URLs via regex (`http[s]?://\S+`)
-- Convert to lowercase
-- Strip whitespace
-- Returns: Normalized string for comparison
+Posts are grouped using AI semantic title comparison during ingestion:
 
-#### 2. Content Hash Computation ✅
-```python
-def compute_content_hash(text: str) -> str:
-    """Compute SHA-256 hash"""
-```
-- Normalizes text first
-- Encodes to UTF-8
-- Computes SHA-256 hash
-- Returns: Hex digest string
-- **Purpose:** Exact duplicate detection (same text = same hash)
+1. **Generate AI Title:** New post gets AI-generated title via `generate_title_and_summary()`
 
-#### 3. Similarity Matching ✅
-```python
-def find_similar_post(
-    new_text: str,
-    existing_posts: list[dict],
-    threshold: float = 0.85
-) -> str | None:
-    """Find similar posts using TF-IDF cosine similarity"""
-```
+2. **Filter Candidates:** Query existing posts matching:
+   - Same category as new post
+   - Created within last 7 days
+   - Has AI-generated title
+   - Limit to 50 posts (cost control)
 
-**How It Works:**
-- Uses scikit-learn's `TfidfVectorizer`
-- Vectorizes new text + all existing post texts
-- Computes cosine similarity between vectors
-- Threshold: 0.85 (semantic similarity)
-- Returns: `group_id` of matching post or None
+3. **AI Comparison:** For each candidate:
+   - Call `compare_titles_semantic(new_title, existing_title)`
+   - AI returns similarity score (0.0-1.0)
+   - If score >= `duplicate_threshold` (default 0.85) → match found
 
-**Technical Details (v2.0 Hybrid Approach):**
-- **Layer 1 (Exact):** SHA-256 hash matching (unchanged, fast)
-- **Layer 2 (Semantic):** AI-based duplicate detection via OpenAI
-  - Compares new post against up to 50 recent posts in same category
-  - Returns YES/NO based on semantic similarity
-  - Can detect rephrased tweets, same story with different wording
-- **Layer 3 (Fallback):** TF-IDF cosine similarity (threshold: 0.85)
-  - Used if AI call fails or times out
-  - Ensures ingestion never blocks due to API issues
-- **Optimization:** Only compares within same category (reduces API calls)
-- **Caching:** Post pair results cached per session (avoids redundant calls)
+4. **Group Assignment:**
+   - If match found → assign existing post's `group_id`, increment Group's `post_count`
+   - If no match → create new Group record with `representative_title`
 
-#### 4. Group Assignment ✅
-```python
-def assign_group_id(
-    post_text: str,
-    post_hash: str,
-    existing_posts: list[dict]
-) -> str:
-    """Assign group_id using 5-step algorithm"""
-```
-
-**Algorithm Flow:**
-1. Check if `post_hash` exists in existing posts
-   - If yes → return existing `group_id`
-2. If no hash match, run `find_similar_post()`
-3. If similarity ≥ 0.85 → return matching `group_id`
-4. If no match → generate new UUID v4
-5. Return `group_id`
+**Configuration:**
+- `duplicate_threshold` setting controls minimum AI confidence required (default: 0.85)
+- Configurable in Settings UI under "Duplicate Detection"
+- Lower threshold = more aggressive grouping
+- Higher threshold = stricter matching
 
 **Technical Achievement:**
 - Solves "Problem 2: Topic Grouping" from requirements
-- Catches exact duplicates (SHA-256) and semantic duplicates (TF-IDF)
-- Prevents duplicate content in UI
+- AI-powered semantic understanding catches rephrased content
+- Configurable sensitivity via threshold setting
+- Cost-optimized via category filtering and candidate limits
 
 ---
 
@@ -839,13 +831,13 @@ Uses APScheduler with AsyncIOScheduler for async tasks.
      - Check `auto_fetch_enabled` setting; if false, skip ingestion and return early
      - Call `openai_client.categorize_post()` → get category + confidence
      - Call `openai_client.generate_title_and_summary()` → get title + summary
-     - Call `openai_client.score_worthiness(post_text, category)` → get AI worthiness score (v2.0 NEW)
+     - Call `openai_client.score_worthiness(post_text, category)` → get AI worthiness score
        - Falls back to algorithmic calculation if AI fails
-     - Compute `content_hash` via SHA-256
-     - Assign `group_id` via hybrid duplicate detection (v2.0 UPDATED):
-       1. Check SHA-256 hash for exact match
-       2. If no match, call `openai_client.detect_duplicate()` against recent posts (v2.0 NEW)
-       3. If AI fails, fall back to TF-IDF similarity
+     - Assign `group_id` via AI title comparison:
+       1. Filter candidates: same category, last 7 days, limit 50
+       2. Call `openai_client.compare_titles_semantic()` for each candidate
+       3. If similarity >= `duplicate_threshold` → assign to existing group
+       4. Otherwise → create new Group record
      - Insert to database as new Post record
    - Update ListMetadata: `last_tweet_id = max(fetched_post_ids)`
 3. Commit transaction
@@ -853,7 +845,7 @@ Uses APScheduler with AsyncIOScheduler for async tasks.
 **Technical Flow:**
 ```
 X API → Categorize (OpenAI) → Generate Title/Summary (OpenAI)
-  → Score → Hash → Group → Database
+  → Score → AI Duplicate Check → Group → Database
 ```
 
 **Error Handling:**
@@ -1051,8 +1043,7 @@ def score_worthiness(self, post_text: str, category: str) -> float:
   - `loading` (boolean)
   - `error` (string)
 - `useEffect` hook fetches posts on mount and view change
-- Fetches from:
-  - `postsApi.getRecommended()` for recommended view
+- Fetches from: groupsApi.getAll() for group-centric display (V-5)
   - `postsApi.getAll()` for all view
 - Parses recommended response (flattens category groups)
 - Renders view toggle buttons
@@ -1075,7 +1066,7 @@ def score_worthiness(self, post_text: str, category: str) -> float:
 
 **Technical Implementation:**
 - Receives `posts` array and `onSelectPost` callback as props
-- **Deduplication Logic:**
+- **Group-Centric Display (V-5):** Receives groups array from Home.tsx, displays each group as card with representative_title, post_count badge, and expand/collapse to fetch posts-by-group
   ```typescript
   const seen = new Set();
   const uniquePosts = posts.filter(post => {
@@ -1372,6 +1363,14 @@ export interface ListMetadata {
   created_at: string;
   updated_at: string;
 }
+
+export interface Group {
+  id: number;
+  representative_title: string;
+  category: string;
+  first_seen: string;
+  post_count: number;
+}
 ```
 
 **Status:** Complete, matches backend models exactly
@@ -1516,29 +1515,26 @@ class Settings(BaseSettings):
 
 **Requirement:** Group duplicate/similar posts together
 
-**Solution: Two-Layer Detection**
+**Solution: AI Semantic Title Comparison**
 
-**Layer 1: Exact Duplicates (SHA-256)**
-- Normalize text (lowercase, remove URLs, strip)
-- Compute SHA-256 hash of normalized text
-- If hash exists → assign to existing group_id
-- **Catches:** Exact reposts, word-for-word duplicates
+During ingestion, posts are grouped using AI to compare AI-generated titles:
 
-**Layer 2: Semantic Duplicates (TF-IDF)**
-- If no hash match, compute TF-IDF vectors
-- Calculate cosine similarity with all existing posts
-- Threshold: 0.85 (semantic similarity)
-- If similarity ≥ 0.85 → assign to matching group_id
-- **Catches:** Rephrased tweets, similar topics, paraphrases
+1. **Generate Title:** Each new post gets an AI-generated title
+2. **Find Candidates:** Query posts with same category, last 7 days (limit 50)
+3. **AI Comparison:** Compare new title vs each candidate title using GPT-4o-mini
+4. **Threshold Check:** If AI similarity score >= `duplicate_threshold` → group together
+5. **Group Assignment:** Either join existing group or create new one
 
-**Fallback: New Group**
-- If no match, generate new UUID v4 as group_id
+**Configuration:**
+- `duplicate_threshold` setting (default: 0.85) controls sensitivity
+- Adjustable in Settings UI under "Duplicate Detection"
+- Lower = more aggressive grouping, Higher = stricter matching
 
 **Technical Advantages:**
-- SHA-256 is fast for exact matches (O(1) hash lookup)
-- TF-IDF handles semantic similarity (catches rephrases)
-- Two-layer approach balances speed and accuracy
-- UUID ensures unique group identifiers
+- AI understands semantic meaning (catches rephrased content)
+- Cost-optimized via category filtering and candidate limits
+- Configurable sensitivity via threshold setting
+- Uses cost-effective GPT-4o-mini model
 
 **Frontend Integration:**
 - PostList.tsx deduplicates by group_id
@@ -1554,7 +1550,7 @@ class Settings(BaseSettings):
 **Backend:**
 - X API integration (fetch posts from lists)
 - OpenAI integration (categorization, titles, summaries, articles)
-- Duplicate detection (SHA-256 + TF-IDF)
+- Duplicate detection (AI semantic title comparison)
 - Scoring algorithm (worthiness calculation)
 - Background scheduler (ingest every 30 min, archive daily)
 - Teams webhook posting (Adaptive Cards)
@@ -1669,15 +1665,15 @@ class Settings(BaseSettings):
 - Async/await throughout (non-blocking I/O)
 - Database indexes on frequently queried fields
 - Batch operations in scheduler
-- Efficient duplicate detection (hash lookup + TF-IDF)
+- AI duplicate detection with category filtering and candidate limits
 
 **Potential Bottlenecks:**
-- TF-IDF similarity scales O(n) with post count
-  - Mitigation: Only check non-archived posts
-  - Future: Add post limit or optimize with approximate nearest neighbors
+- AI duplicate detection scales with candidate count
+  - Mitigation: Limited to 50 candidates per post, filtered by category and time
+  - Cost control: Uses GPT-4o-mini (cost-effective model)
 - OpenAI API calls (rate limits)
-  - Current: 3 calls per post (categorize, title, summary)
-  - Future: Consider batching or caching
+  - Current: 3+ calls per post (categorize, title, summary, duplicate checks)
+  - Duplicate threshold setting controls how many comparisons are needed
 
 ### Frontend:
 
@@ -1736,13 +1732,13 @@ klaus-news/
 │   │   │   ├── __init__.py
 │   │   │   ├── post.py          # Post model ✅
 │   │   │   ├── article.py       # Article model ✅
-│   │   │   └── list_metadata.py # ListMetadata model ✅
+│   │   │   ├── list_metadata.py # ListMetadata model ✅
+│   │   │   └── group.py          # Group model ✅ (V-4)
 │   │   ├── services/
 │   │   │   ├── __init__.py
 │   │   │   ├── x_client.py      # X API client ✅
-│   │   │   ├── openai_client.py # OpenAI client ✅
+│   │   │   ├── openai_client.py # OpenAI client (includes duplicate detection) ✅
 │   │   │   ├── teams_client.py  # Teams webhook ✅
-│   │   │   ├── duplicate_detection.py # SHA-256 + TF-IDF ✅
 │   │   │   ├── scoring.py       # Worthiness algorithm ✅
 │   │   │   ├── scheduler.py     # Background jobs ✅
 │   │   │   └── settings_service.py # Settings with caching ✅
@@ -1752,7 +1748,8 @@ klaus-news/
 │   │       ├── articles.py      # Articles endpoints ✅
 │   │       ├── settings.py      # Settings endpoints ✅
 │   │       ├── lists.py         # Lists endpoints ✅
-│   │       └── admin.py         # Admin endpoints ✅
+│   │       ├── admin.py         # Admin endpoints ✅
+│   │       └── groups.py        # Groups endpoints ✅ (V-5)
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── .dockerignore

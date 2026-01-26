@@ -23,7 +23,7 @@ def seed_prompts_if_empty():
                 {"prompt_key": "generate_title", "prompt_text": "Generate a concise, engaging title (max 80 chars) for this X/Twitter thread. Focus on the main insight or takeaway.", "model": "gpt-4-turbo", "temperature": 0.7, "max_tokens": 100, "description": "Article title generation"},
                 {"prompt_key": "generate_article", "prompt_text": "Transform this X/Twitter thread into a professional blog article. Preserve key insights, add context where needed, maintain the author's voice.", "model": "gpt-4-turbo", "temperature": 0.7, "max_tokens": 1500, "description": "Full article generation"},
                 {"prompt_key": "score_worthiness", "prompt_text": "Rate this post's worthiness for article generation (0.0-1.0). Consider: insight quality, topic relevance, completeness, engagement potential. Return ONLY a number between 0.0 and 1.0.", "model": "gpt-4-turbo", "temperature": 0.3, "max_tokens": 50, "description": "AI worthiness scoring (V-6)"},
-                {"prompt_key": "detect_duplicate", "prompt_text": "Compare these two posts. Are they about the same topic/story? Return ONLY: YES or NO.", "model": "gpt-3.5-turbo", "temperature": 0.0, "max_tokens": 10, "description": "AI duplicate detection (V-7)"},
+                {"prompt_key": "detect_duplicate", "prompt_text": "Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.", "model": "gpt-4o-mini", "temperature": 0.0, "max_tokens": 10, "description": "AI duplicate detection (returns similarity score 0.0-1.0)"},
                 {"prompt_key": "suggest_improvements", "prompt_text": "Suggest 3 specific improvements for this draft article. Focus on clarity, structure, and reader value.", "model": "gpt-4-turbo", "temperature": 0.7, "max_tokens": 500, "description": "Article improvement suggestions"}
             ]
             for prompt_data in defaults:
@@ -136,6 +136,10 @@ app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 # V-4: Prompts management router
 from app.api import prompts
 app.include_router(prompts.router, tags=["prompts"])
+
+# V-5: Groups management router
+from app.api import groups
+app.include_router(groups.router, prefix="/api/groups", tags=["groups"])
 
 
 @app.get("/health")

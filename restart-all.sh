@@ -9,15 +9,15 @@ echo ""
 echo "⏹️  Stopping all services..."
 docker-compose down
 
-# Rebuild frontend (to pick up CSS/code changes)
+# Rebuild frontend (force rebuild to pick up all changes)
 echo ""
 echo "🔨 Rebuilding frontend..."
-docker-compose build frontend
+docker-compose build --no-cache frontend
 
-# Rebuild backend (if needed)
+# Rebuild backend (force rebuild to pick up all changes)
 echo ""
 echo "🔨 Rebuilding backend..."
-docker-compose build backend
+docker-compose build --no-cache backend
 
 # Start everything
 echo ""

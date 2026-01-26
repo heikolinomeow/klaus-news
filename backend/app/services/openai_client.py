@@ -64,8 +64,8 @@ class OpenAIClient:
                 "max_tokens": 50
             },
             "detect_duplicate": {
-                "prompt_text": "Compare these two posts. Are they about the same topic? Return ONLY: YES or NO.",
-                "model": "gpt-3.5-turbo",
+                "prompt_text": "Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.",
+                "model": "gpt-4o-mini",
                 "temperature": 0.0,
                 "max_tokens": 10
             }
@@ -208,24 +208,24 @@ class OpenAIClient:
             return 0.5  # Default if parsing fails
 
 
-    async def detect_duplicate(self, new_post_text: str, existing_post_text: str) -> bool:
-        """Detect if two posts are duplicates using AI (V-7)
+    async def detect_duplicate(self, new_post_text: str, existing_post_text: str) -> float:
+        """Detect similarity between two posts using AI
 
         Uses database prompts when available (via _get_prompt), falls back
         to hardcoded prompts when db=None or prompt not found.
 
-        STCC-8 Safety: Works with or without V-4's _get_prompt method via hasattr check.
+        Returns:
+            Similarity score between 0.0 (completely different) and 1.0 (same story)
         """
         from openai import AsyncOpenAI
 
-        # Get prompt config with fallback to hardcoded (safe without V-4)
+        # Get prompt config with fallback to hardcoded
         if hasattr(self, '_get_prompt'):
             prompt_config = self._get_prompt("detect_duplicate")
         else:
-            # Fallback prompt config when _get_prompt doesn't exist yet
             prompt_config = {
-                "prompt_text": "Compare these two posts. Are they about the same topic/story? Return ONLY: YES or NO.",
-                "model": "gpt-3.5-turbo",
+                "prompt_text": "Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.",
+                "model": "gpt-4o-mini",
                 "temperature": 0.0,
                 "max_tokens": 10
             }
@@ -244,8 +244,56 @@ class OpenAIClient:
             max_tokens=prompt_config["max_tokens"]
         )
 
-        answer = response.choices[0].message.content.strip().upper()
-        return answer == "YES"
+        score_text = response.choices[0].message.content.strip()
+        try:
+            score = float(score_text)
+            return max(0.0, min(1.0, score))  # Clamp to [0.0, 1.0]
+        except ValueError:
+            return 0.0  # Default to no match if parsing fails
+
+    async def compare_titles_semantic(self, new_title: str, existing_title: str) -> float:
+        """Compare two AI-generated titles semantically for duplicate detection
+
+        Args:
+            new_title: AI-generated title of new post
+            existing_title: AI-generated title of existing post
+
+        Returns:
+            Similarity score between 0.0 (completely different) and 1.0 (same story)
+        """
+        from openai import AsyncOpenAI
+
+        # Get prompt config with fallback to hardcoded
+        if hasattr(self, '_get_prompt'):
+            prompt_config = self._get_prompt("detect_duplicate")
+        else:
+            prompt_config = {
+                "prompt_text": "Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.",
+                "model": "gpt-4o-mini",
+                "temperature": 0.0,
+                "max_tokens": 10
+            }
+
+        client = AsyncOpenAI(api_key=self.api_key)
+
+        combined_text = f"Title 1: {new_title}\n\nTitle 2: {existing_title}"
+
+        response = await client.chat.completions.create(
+            model=prompt_config["model"],
+            messages=[
+                {"role": "system", "content": prompt_config["prompt_text"]},
+                {"role": "user", "content": combined_text}
+            ],
+            temperature=prompt_config["temperature"],
+            max_tokens=prompt_config["max_tokens"]
+        )
+
+        score_text = response.choices[0].message.content.strip()
+        try:
+            score = float(score_text)
+            return max(0.0, min(1.0, score))  # Clamp to [0.0, 1.0]
+        except ValueError:
+            return 0.0  # Default to no match if parsing fails
 
 
 openai_client = OpenAIClient()

@@ -64,6 +64,11 @@ export const adminApi = {
   getArchivePreview: () => apiClient.get<{ count: number; archive_age_days: number; cutoff_date: string }>('/api/admin/archive-preview')
 };
 
+// Groups API (V-5)
+export const groupsApi = {
+  getAll: () => apiClient.get<{ groups: any[] }>('/api/groups/'),
+  getPostsByGroup: (groupId: number) => apiClient.get<{ posts: any[] }>(`/api/groups/${groupId}/posts/`)
+};
 
 // Prompts API (V-4)
 export const promptsApi = {

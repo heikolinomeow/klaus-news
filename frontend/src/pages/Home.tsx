@@ -1,46 +1,28 @@
 /**
- * Home page - displays recommended and all posts
+ * Home page - displays groups (V-5 group-centric view)
  */
 import { useState, useEffect } from 'react';
-import { Post } from '../types';
-import { postsApi } from '../services/api';
+import { Post, Group } from '../types';
+import { groupsApi, postsApi } from '../services/api';
 import PostList from '../components/PostList';
 
 function Home() {
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<'recommended' | 'all'>('recommended');
 
   useEffect(() => {
-    fetchPosts();
-  }, [view]);
+    fetchGroups();
+  }, []);
 
-  const fetchPosts = async () => {
+  const fetchGroups = async () => {
     try {
       setLoading(true);
-      const response = view === 'recommended'
-        ? await postsApi.getRecommended()
-        : await postsApi.getAll();
-
-      // Recommended returns {category: [posts]}, All returns {posts: []}
-      if (view === 'recommended') {
-        const grouped = response.data;
-        const flatPosts: Post[] = [];
-        Object.keys(grouped).forEach(category => {
-          const categoryPosts = grouped[category];
-          if (Array.isArray(categoryPosts)) {
-            flatPosts.push(...categoryPosts);
-          }
-        });
-        setPosts(flatPosts);
-      } else {
-        setPosts(response.data.posts || []);
-      }
-
+      const response = await groupsApi.getAll();
+      setGroups(response.data.groups || []);
       setError(null);
     } catch (err) {
-      setError('Failed to load posts');
+      setError('Failed to load groups');
       console.error(err);
     } finally {
       setLoading(false);
@@ -62,21 +44,8 @@ function Home() {
 
   return (
     <div className="home-page">
-      <div className="view-toggle">
-        <button
-          className={view === 'recommended' ? 'active' : ''}
-          onClick={() => setView('recommended')}
-        >
-          Recommended
-        </button>
-        <button
-          className={view === 'all' ? 'active' : ''}
-          onClick={() => setView('all')}
-        >
-          All Posts
-        </button>
-      </div>
-      <PostList posts={posts} onSelectPost={handleSelectPost} />
+      <h2>News Stories</h2>
+      <PostList groups={groups} onSelectPost={handleSelectPost} />
     </div>
   );
 }

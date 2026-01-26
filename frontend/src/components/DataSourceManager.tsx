@@ -85,7 +85,7 @@ export default function DataSourceManager() {
   return (
     <div className="data-source-manager">
       <div className="data-source-header">
-        <h3>X/Twitter Lists</h3>
+        <h3>X Lists</h3>
         <div className="data-source-actions">
           <button className="btn-secondary">Import Lists</button>
           <button className="btn-secondary">Export Lists</button>
@@ -131,7 +131,16 @@ export default function DataSourceManager() {
           <tbody>
             {lists.map((list) => (
               <tr key={list.id}>
-                <td>{list.list_id}</td>
+                <td>
+                  <a
+                    href={`https://x.com/i/lists/${list.list_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="list-id-link"
+                  >
+                    {list.list_id}
+                  </a>
+                </td>
                 <td>{list.list_name}</td>
                 <td>
                   <span className={list.enabled ? 'enabled' : 'disabled'}>
