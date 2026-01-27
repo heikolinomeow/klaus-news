@@ -7,10 +7,11 @@ import { groupsApi } from '../services/api';
 
 interface PostListProps {
   groups: Group[];
-  onSelectPost?: (post: Post) => void;
+  onSelectGroup?: (groupId: number) => void;
+  onArchiveGroup?: (groupId: number) => void;
 }
 
-function PostList({ groups, onSelectPost }: PostListProps) {
+function PostList({ groups, onSelectGroup, onArchiveGroup }: PostListProps) {
   const [expandedGroupId, setExpandedGroupId] = useState<number | null>(null);
   const [groupPosts, setGroupPosts] = useState<Record<number, Post[]>>({});
   const [loadingGroupId, setLoadingGroupId] = useState<number | null>(null);
@@ -45,17 +46,39 @@ function PostList({ groups, onSelectPost }: PostListProps) {
     <div className="post-list">
       {groups.map((group) => (
         <div key={group.id} className="group-card">
-          <div
-            className="group-header"
-            onClick={() => handleGroupClick(group.id)}
-          >
-            <h3>{group.representative_title}</h3>
-            <span className="post-count-badge">
-              {group.post_count} {group.post_count === 1 ? 'post' : 'posts'} about this story
-            </span>
-            <div className="group-meta">
-              <span className="group-category">{group.category || 'Uncategorized'}</span>
-              <span className="expand-icon">{expandedGroupId === group.id ? '▼' : '▶'}</span>
+          <div className="group-header">
+            <div
+              className="group-header-clickable"
+              onClick={() => handleGroupClick(group.id)}
+            >
+              <h3>{group.representative_title}</h3>
+              <span className="post-count-badge">
+                {group.post_count} {group.post_count === 1 ? 'source' : 'sources'}
+              </span>
+              <div className="group-meta">
+                <span className="group-category">{group.category || 'Uncategorized'}</span>
+                <span className="expand-icon">{expandedGroupId === group.id ? '▼' : '▶'}</span>
+              </div>
+            </div>
+            <div className="group-actions">
+              <button
+                className="write-article-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectGroup?.(group.id);
+                }}
+              >
+                Write Article
+              </button>
+              <button
+                className="archive-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onArchiveGroup?.(group.id);
+                }}
+              >
+                Archive
+              </button>
             </div>
           </div>
 
@@ -65,14 +88,7 @@ function PostList({ groups, onSelectPost }: PostListProps) {
                 <div className="loading">Loading posts...</div>
               ) : (
                 groupPosts[group.id]?.map((post) => (
-                  <div
-                    key={post.id}
-                    className="post-variation"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectPost?.(post);
-                    }}
-                  >
+                  <div key={post.id} className="post-variation">
                     <h4>{post.ai_title || 'Untitled'}</h4>
                     <p className="post-summary">{post.ai_summary || post.original_text}</p>
                     <div className="post-meta">
@@ -80,15 +96,6 @@ function PostList({ groups, onSelectPost }: PostListProps) {
                       {post.worthiness_score && (
                         <span className="post-score">Score: {post.worthiness_score.toFixed(2)}</span>
                       )}
-                      <button
-                        className="select-for-article"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectPost?.(post);
-                        }}
-                      >
-                        Use for Article
-                      </button>
                     </div>
                   </div>
                 ))

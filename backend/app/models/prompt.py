@@ -10,7 +10,7 @@ class Prompt(Base):
     id = Column(Integer, primary_key=True, index=True)
     prompt_key = Column(String(100), unique=True, nullable=False, index=True)
     prompt_text = Column(Text, nullable=False)
-    model = Column(String(50), default='gpt-4-turbo')
+    model = Column(String(50), default='gpt-5.1')
     temperature = Column(Float, default=0.7)
     max_tokens = Column(Integer, default=500)
     version = Column(Integer, default=1)

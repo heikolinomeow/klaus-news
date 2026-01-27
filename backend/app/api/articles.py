@@ -10,8 +10,8 @@ router = APIRouter()
 
 
 class CreateArticleRequest(BaseModel):
-    """Request body for creating an article"""
-    post_id: int = Field(..., description="Database ID of the post to generate article from", example=1)
+    """Request body for creating an article (V-13: group-based generation)"""
+    group_id: int = Field(..., description="Database ID of the group to generate article from", example=1)
 
 
 class UpdateArticleRequest(BaseModel):
@@ -45,68 +45,73 @@ async def get_all_articles(db: Session = Depends(get_db)):
 @router.post("/")
 async def create_article(request: CreateArticleRequest, db: Session = Depends(get_db)):
     """
-    Generate a news article from a post using OpenAI (Frontend → Backend → OpenAI)
+    Generate a news article from a GROUP using OpenAI (V-13: group-based generation)
 
-    This endpoint takes a post and uses OpenAI's GPT model to transform it into
-    a full news article with proper structure, context, and formatting.
-
-    **Use this when:**
-    - User wants to create an article from a selected post
-    - Converting raw X/Twitter content into publishable news
+    This endpoint takes a group and uses all posts within it as source material
+    to generate a comprehensive news article with multiple perspectives.
 
     **What happens (backend flow):**
-    1. Fetch post from database by ID
-    2. Call OpenAI API with article generation prompt
-    3. Parse response (extract title from first markdown line)
-    4. Save article to database
-    5. Return generated article
+    1. Fetch group and all its posts from database
+    2. Combine group context + all posts' content as source material
+    3. Call OpenAI API with combined prompt
+    4. Mark group as selected=true
+    5. Save article to database
+    6. Return generated article
 
     **Request body:**
     ```json
     {
-      "post_id": 1
+      "group_id": 1
     }
     ```
-
-    **Response:**
-    - Article title (extracted from content)
-    - Full article content (markdown format)
-    - Generation count (starts at 1)
-    - Posted to Teams timestamp (null until published)
-
-    **Performance:**
-    - ⏱️ Takes 3-10 seconds (OpenAI API call)
-    - 💰 Costs ~$0.01-0.05 per article (OpenAI pricing)
-
-    **Error cases:**
-    - Post not found → Returns error
-    - OpenAI API failure → Will timeout/error
-
-    **Next steps:**
-    - Edit article → `PUT /api/articles/{id}`
-    - Regenerate if unsatisfied → `POST /api/articles/{id}/regenerate`
-    - Publish to Teams → `POST /api/articles/{id}/post-to-teams`
     """
-    from sqlalchemy import select
+    from sqlalchemy import select, update
     from app.models.post import Post
+    from app.models.group import Group
     from app.services.openai_client import openai_client
 
-    # 1. Get post by ID
-    post = db.execute(select(Post).where(Post.id == request.post_id)).scalar_one_or_none()
-    if not post:
-        return {"error": "Post not found"}
+    # 1. Get group by ID
+    group = db.execute(select(Group).where(Group.id == request.group_id)).scalar_one_or_none()
+    if not group:
+        return {"error": "Group not found"}
 
-    # 2. Conduct research (MVP: skip)
+    # 2. Get all posts in the group (V-13: gather all posts as source material)
+    posts = db.execute(
+        select(Post).where(Post.group_id == request.group_id).order_by(Post.created_at.desc())
+    ).scalars().all()
 
-    # 3. Generate article via OpenAI
-    content = await openai_client.generate_article(post.original_text)
+    if not posts:
+        return {"error": "No posts found in group"}
+
+    # 3. Combine content for AI (V-13: group context + all posts)
+    combined_content = f"""
+Topic: {group.representative_title}
+Summary: {group.representative_summary or 'N/A'}
+Category: {group.category}
+Number of sources: {len(posts)}
+
+Sources:
+"""
+    for i, post in enumerate(posts, 1):
+        combined_content += f"""
+--- Source {i} ---
+Author: {post.author or 'Unknown'}
+Original text: {post.original_text}
+AI Summary: {post.ai_summary or 'N/A'}
+"""
+
+    # 4. Generate article via OpenAI with combined content
+    content = await openai_client.generate_article(combined_content)
 
     # Extract title (first line of markdown)
     title_line = content.split('\n')[0].replace('#', '').strip()
 
-    # 4. Store in database
+    # 5. Mark group as selected (V-13)
+    db.execute(update(Group).where(Group.id == request.group_id).values(selected=True))
+
+    # 6. Store in database (use first post's id for backward compatibility)
     new_article = Article(
-        post_id=post.id,
+        post_id=posts[0].id,
         title=title_line,
         content=content,
         generation_count=1
@@ -117,6 +122,7 @@ async def create_article(request: CreateArticleRequest, db: Session = Depends(ge
 
     return {"article": {
         "id": new_article.id,
+        "group_id": request.group_id,
         "post_id": new_article.post_id,
         "title": new_article.title,
         "content": new_article.content,

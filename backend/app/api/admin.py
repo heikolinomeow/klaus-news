@@ -21,17 +21,35 @@ async def trigger_ingestion_manually(db: Session = Depends(get_db)):
 
     **Returns:**
     - Status of the manual ingestion run
-    - Number of posts fetched (if successful)
+    - Detailed stats about posts fetched and added
     """
     try:
         from app.services.scheduler import ingest_posts_job
 
-        # Run ingestion job directly
-        await ingest_posts_job()
+        # Run ingestion job directly with "manual" trigger source
+        stats = await ingest_posts_job(trigger_source="manual")
+
+        # Build descriptive message based on results
+        if stats['new_posts_added'] == 0:
+            if stats['api_errors'] > 0:
+                # X API errors occurred
+                error_detail = stats.get('last_api_error', {})
+                status_code = error_detail.get('status_code', 'unknown')
+                if status_code == 402:
+                    message = "X API error: Payment Required (402) - API credits depleted"
+                else:
+                    message = f"X API error ({status_code}) - check System Logs for details"
+            elif stats['posts_fetched'] == 0:
+                message = "No new posts found (no posts fetched from X)"
+            else:
+                message = f"No new posts added ({stats['duplicates_skipped']} duplicates skipped)"
+        else:
+            message = f"Added {stats['new_posts_added']} new post(s) from {stats['lists_processed']} list(s)"
 
         return {
-            "message": "Manual ingestion completed",
-            "status": "success"
+            "message": message,
+            "status": "success",
+            "stats": stats
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")

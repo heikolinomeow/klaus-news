@@ -2,8 +2,8 @@
  * Home page - displays groups (V-5 group-centric view)
  */
 import { useState, useEffect } from 'react';
-import { Post, Group } from '../types';
-import { groupsApi, postsApi } from '../services/api';
+import { Group } from '../types';
+import { groupsApi } from '../services/api';
 import PostList from '../components/PostList';
 
 function Home() {
@@ -29,13 +29,23 @@ function Home() {
     }
   };
 
-  const handleSelectPost = async (post: Post) => {
+  const handleSelectGroup = async (groupId: number) => {
     try {
-      await postsApi.selectPost(post.id);
-      // TODO: Navigate to article generation view
-      console.log('Selected post:', post);
+      await groupsApi.select(groupId);
+      // TODO: Navigate to article generation view with group_id
+      console.log('Selected group:', groupId);
     } catch (err) {
-      console.error('Failed to select post:', err);
+      console.error('Failed to select group:', err);
+    }
+  };
+
+  const handleArchiveGroup = async (groupId: number) => {
+    try {
+      await groupsApi.archive(groupId);
+      // Remove from local state
+      setGroups(prev => prev.filter(g => g.id !== groupId));
+    } catch (err) {
+      console.error('Failed to archive group:', err);
     }
   };
 
@@ -45,7 +55,11 @@ function Home() {
   return (
     <div className="home-page">
       <h2>News Stories</h2>
-      <PostList groups={groups} onSelectPost={handleSelectPost} />
+      <PostList
+        groups={groups}
+        onSelectGroup={handleSelectGroup}
+        onArchiveGroup={handleArchiveGroup}
+      />
     </div>
   );
 }

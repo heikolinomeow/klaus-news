@@ -45,10 +45,22 @@
 **Mitigation:** UI disables manual trigger button while job is running; check scheduler status before trigger
 
 ### Archive Without Confirmation
-**Issue:** Manual archive operation is irreversible (soft delete via archived flag)
+**Issue:** Group archive operation sets group.archived=true (V-9); posts inherit this state
 **Risk:** Low (4/10)
 **Behavior:** Confirmation dialog mitigates accidental triggers
-**Mitigation:** Archived posts can be un-archived by manually updating database
+**Mitigation:** Archived groups can be un-archived via POST /api/groups/{id}/unarchive/ endpoint or archived groups UI view
+
+### Group State Machine Progression
+**Issue:** Groups follow state flow NEW → COOKING → REVIEW → PUBLISHED; no backward transitions (Brief V-3)
+**Risk:** Medium (4/10)
+**Behavior:** Once group moves to COOKING, it cannot return to NEW; once in REVIEW, cannot return to COOKING
+**Mitigation:** Design enforces forward-only progression; user must create new group or archive current one to restart
+
+### Research Optional But UI May Confuse
+**Issue:** Design decision V-20: article generation always available without research (Brief V-11)
+**Risk:** Low (3/10)
+**Behavior:** Users might think research is required when it's optional
+**Mitigation:** Generate Article button always enabled; UI should clearly show two paths (with/without research)
 
 ### Invalid Settings Breaking System
 **Issue:** Extreme settings values (e.g., interval = 0, threshold = 1.5) could break scheduler
@@ -86,6 +98,18 @@
 **Behavior:** Users see representative titles with post count badges; must expand to see individual posts
 **Mitigation:** More intuitive UX showing story depth; expand/collapse is familiar pattern
 
+### V-18 Group-Level Selection
+**Issue:** Selection actions now operate at group level, not post level
+**Risk:** Low (2/10) - API breaking change
+**Behavior:** POST /api/posts/{id}/select/ removed; use POST /api/groups/{id}/select/ instead
+**Mitigation:** Frontend updated to use group-level actions; all posts in group become article source material
+
+### V-5 Archived Group Matching Behavior
+**Issue:** New posts matching archived groups join silently without unarchiving
+**Risk:** Low (2/10) - may surprise users expecting notification
+**Behavior:** Group stays archived; post_count increments; no status change or notification
+**Mitigation:** User can view archived groups to see activity; respects user's explicit archive decision
+
 ### Invalid Prompts Breaking AI Operations
 **Issue:** Users can edit prompts to invalid or empty text, breaking AI functionality
 **Risk:** Critical (9/10)
@@ -97,6 +121,30 @@
 **Risk:** Low (2/10)
 **Behavior:** Each tile has independent Save button; no indication of unsaved changes in other tiles
 **Mitigation:** Per-tile save prevents losing all work if one save fails; consider adding visual indicator for unsaved changes in future
+
+### Category Name Immutability
+**Issue:** Category names cannot be changed after creation
+**Risk:** Medium (5/10)
+**Behavior:** Users may want to rename categories but this would orphan existing posts
+**Mitigation:** UI clearly labels name field as permanent; descriptions can be edited anytime to clarify category scope
+
+### Category Fuzzy Matching Edge Cases
+**Issue:** Partial string matching may produce unexpected category assignments
+**Risk:** Low (3/10)
+**Behavior:** AI returns "News" → matches "Major News"; AI returns "Content" → matches "Content Creation"
+**Mitigation:** Review mismatch log in Settings; adjust category names for distinctiveness; improve prompt skeleton instructions
+
+### Category Mismatch Log Cap
+**Issue:** Mismatch log capped at 100 entries; oldest entries removed automatically
+**Risk:** Low (2/10)
+**Behavior:** High mismatch volume may lose historical data before user reviews
+**Mitigation:** Review and clear log regularly; adjust categories or prompt if consistent mismatches occur
+
+### Cross-Category Duplicate Detection Limitation
+**Issue:** Duplicate detection operates within category boundaries only
+**Risk:** Low (3/10)
+**Behavior:** If AI miscategorizes a post, it won't be detected as duplicate of similar post in correct category
+**Mitigation:** Known trade-off; cross-category comparison would be significantly more expensive (API calls); current approach balances cost vs. accuracy
 
 ### Prompt Changes Immediate Effect
 **Issue:** Prompt edits take effect immediately without preview or staging
@@ -119,18 +167,63 @@
 **Mitigation:** Priority development task; estimate 2-3 days to complete
 
 ### Duplicate Post Protection
-**Issue:** AI title comparison compares AI-generated titles, scoped to same category and last 7 days
+**Issue:** AI title comparison compares against Group representative titles (V-17), scoped to same category, includes ALL groups (archived and non-archived)
 **Risk:** Medium (5/10) - performance and cost concern
 **Behavior:**
-- Each new post compared against up to 50 recent posts in same category
-- API calls scale with number of candidates found
-- Slowdown and cost increase with high post volume
+- Each new post compared against all Groups in same category (V-4)
+- Archived groups included in matching to prevent duplicate group creation when topics resurface
+- API calls scale with number of groups found
+- Slowdown and cost increase with high group volume
 **Mitigation:**
 - Limit comparison to 50 recent posts
 - Only compare within same category (reduces API calls)
 - 7-day time window reduces candidate pool
 - Uses cost-effective GPT-4o-mini model
 - Configurable threshold via Settings (higher = fewer matches = fewer subsequent comparisons)
+
+## Research & Article Generation
+
+### Deep Research Cost
+**Issue:** o3-deep-research model is extremely expensive (hundreds of sources, minutes of processing)
+**Risk:** Critical (9/10) - budget impact
+**Behavior:** Single deep research run can cost $5-50 depending on topic complexity
+**Mitigation:** Default to Agentic Research (o4-mini) which provides good balance; warn users before Deep Research; no cost estimates shown in UI per design decision V-20
+
+### Research Mode API Rate Limits
+**Issue:** Quick Research (gpt-5-search-api) and Agentic Research (o4-mini) may have different rate limits than standard chat models
+**Risk:** Medium (5/10)
+**Behavior:** Hitting rate limits during research causes failures, user must retry
+**Mitigation:** Implement exponential backoff; monitor rate limit headers; queue research requests if needed
+
+### Research Without Posts Context
+**Issue:** Research can be run on groups, but quality depends on post content providing topic context
+**Risk:** Low (3/10)
+**Behavior:** Generic or off-topic research if posts don't clearly define topic
+**Mitigation:** Research prompt includes all posts in group as context; representative title and summary guide AI
+
+### Article Style Prompt Conflicts
+**Issue:** Users can edit article style prompts to be contradictory or incompatible with style name
+**Risk:** Medium (4/10)
+**Behavior:** 'news_brief' prompt could be edited to generate long-form content, confusing users
+**Mitigation:** Prompt descriptions in Settings explain intended style; Reset to Default available; no validation of prompt content vs style name
+
+### Article Refinement Context Size
+**Issue:** Refinement uses current article + research + posts + instruction as context; may exceed token limits for large groups
+**Risk:** Medium (5/10)
+**Behavior:** API error if combined context exceeds model's token limit
+**Mitigation:** Article generation uses plain text (smaller than markdown); research output truncated if needed; limit posts in group or use summarization
+
+### Research Editing vs Regeneration
+**Issue:** Users can edit research output but cannot regenerate with same mode (only re-run with mode change)
+**Risk:** Low (2/10)
+**Behavior:** If user accidentally deletes research content, must re-run research (costs API call)
+**Mitigation:** Reset to Original button available; original_output preserved in database; warn before overwriting with re-run
+
+### Article Refinement No History
+**Issue:** Refinement replaces article content without version history (Brief V-12, Specs V-12)
+**Risk:** Medium (4/10)
+**Behavior:** Previous article version lost after refinement
+**Mitigation:** Design decision per V-20; single version keeps UI simple; users can regenerate from scratch if needed
 
 ## Database & Persistence
 
@@ -199,4 +292,4 @@
 - **Export/import for prompts:** ✅ Implemented (v2.0: GET /api/prompts/export, POST /api/prompts/import)
 - **Settings export/import:** Not implemented (system_settings table export/import not available)
 - **Per-list scheduling not supported:** All lists share same ingestion interval
-- **Fixed categories:** Cannot add custom categories beyond predefined 6
+- **Category system:** Users can add up to 20 custom categories; category names are immutable after creation to preserve post assignments; 'Other' is reserved and non-editable

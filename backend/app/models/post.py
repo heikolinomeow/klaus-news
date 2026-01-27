@@ -1,5 +1,5 @@
 """Post model (X/Twitter posts from curated lists)"""
-from sqlalchemy import Column, Integer, String, Text, Boolean, Float, DateTime, func
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, func
 
 from app.database import Base
 
@@ -30,9 +30,6 @@ class Post(Base):
     # Topic grouping (group posts about same topic via AI title comparison)
     group_id = Column(Integer, index=True)  # FK to Groups.id
 
-    # State
-    archived = Column(Boolean, default=False, index=True)
-    selected = Column(Boolean, default=False)  # User clicked/selected
 
     # Timestamps
     ingested_at = Column(DateTime, server_default=func.now())

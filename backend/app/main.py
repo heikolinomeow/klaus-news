@@ -6,6 +6,8 @@ from app.config import settings
 from app.api import posts, articles
 from app.database import engine, Base, initialize_default_settings
 from app.models import Post, Article, ListMetadata, SystemSettings
+from app.models.group_research import GroupResearch
+from app.models.group_articles import GroupArticle
 
 
 def seed_prompts_if_empty():
@@ -19,12 +21,12 @@ def seed_prompts_if_empty():
         existing_count = db.execute(select(func.count(Prompt.id))).scalar()
         if existing_count == 0:
             defaults = [
-                {"prompt_key": "categorize_post", "prompt_text": "Analyze this X/Twitter post and assign it to ONE category: Technology, Politics, Business, Science, Health, or Other. Return ONLY the category name.", "model": "gpt-4-turbo", "temperature": 0.3, "max_tokens": 50, "description": "Post categorization prompt"},
-                {"prompt_key": "generate_title", "prompt_text": "Generate a concise, engaging title (max 80 chars) for this X/Twitter thread. Focus on the main insight or takeaway.", "model": "gpt-4-turbo", "temperature": 0.7, "max_tokens": 100, "description": "Article title generation"},
-                {"prompt_key": "generate_article", "prompt_text": "Transform this X/Twitter thread into a professional blog article. Preserve key insights, add context where needed, maintain the author's voice.", "model": "gpt-4-turbo", "temperature": 0.7, "max_tokens": 1500, "description": "Full article generation"},
-                {"prompt_key": "score_worthiness", "prompt_text": "Rate this post's worthiness for article generation (0.0-1.0). Consider: insight quality, topic relevance, completeness, engagement potential. Return ONLY a number between 0.0 and 1.0.", "model": "gpt-4-turbo", "temperature": 0.3, "max_tokens": 50, "description": "AI worthiness scoring (V-6)"},
-                {"prompt_key": "detect_duplicate", "prompt_text": "Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.", "model": "gpt-4o-mini", "temperature": 0.0, "max_tokens": 10, "description": "AI duplicate detection (returns similarity score 0.0-1.0)"},
-                {"prompt_key": "suggest_improvements", "prompt_text": "Suggest 3 specific improvements for this draft article. Focus on clarity, structure, and reader value.", "model": "gpt-4-turbo", "temperature": 0.7, "max_tokens": 500, "description": "Article improvement suggestions"}
+                {"prompt_key": "categorize_post", "prompt_text": "You are categorizing social media posts about AI. Read the post carefully and assign it to exactly ONE category based on the primary topic. Consider the main subject matter, not peripheral mentions.\n\nCategorize into one of the following categories:\n{{CATEGORIES}}\n\nReturn ONLY the category name, nothing else.", "model": "gpt-5-mini", "temperature": 0.3, "max_tokens": 50, "description": "Post categorization prompt (uses {{CATEGORIES}} placeholder)"},
+                {"prompt_key": "generate_title", "prompt_text": "Generate a concise, engaging title (max 80 chars) for this X/Twitter thread. Focus on the main insight or takeaway.", "model": "gpt-5.1", "temperature": 0.7, "max_tokens": 100, "description": "Article title generation"},
+                {"prompt_key": "generate_article", "prompt_text": "Transform this X/Twitter thread into a professional blog article. Preserve key insights, add context where needed, maintain the author's voice.", "model": "gpt-5.1", "temperature": 0.7, "max_tokens": 1500, "description": "Full article generation"},
+                {"prompt_key": "score_worthiness", "prompt_text": "Rate this post's worthiness for article generation (0.0-1.0). Consider: insight quality, topic relevance, completeness, engagement potential. Return ONLY a number between 0.0 and 1.0.", "model": "gpt-5-mini", "temperature": 0.3, "max_tokens": 50, "description": "AI worthiness scoring (V-6)"},
+                {"prompt_key": "detect_duplicate", "prompt_text": "Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.", "model": "gpt-5-mini", "temperature": 0.0, "max_tokens": 10, "description": "AI duplicate detection (returns similarity score 0.0-1.0)"},
+                {"prompt_key": "suggest_improvements", "prompt_text": "Suggest 3 specific improvements for this draft article. Focus on clarity, structure, and reader value.", "model": "gpt-5.2", "temperature": 0.7, "max_tokens": 500, "description": "Article improvement suggestions"}
             ]
             for prompt_data in defaults:
                 db.add(Prompt(**prompt_data))
@@ -92,6 +94,7 @@ app = FastAPI(
 
 # Start background scheduler
 from app.services.scheduler import start_scheduler
+from app.services.logging_config import setup_logging
 
 @app.on_event("startup")
 async def startup_event():
@@ -101,6 +104,8 @@ async def startup_event():
     initialize_default_settings()
     # Auto-seed prompts (V-22)
     seed_prompts_if_empty()
+    # Setup logging
+    setup_logging()
     # Start scheduler
     start_scheduler()
 
@@ -132,6 +137,9 @@ app.include_router(settings_api.router, prefix="/api/settings", tags=["settings"
 from app.api import admin
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
+# Logs management router
+from app.api import logs
+app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 
 # V-4: Prompts management router
 from app.api import prompts
@@ -140,6 +148,14 @@ app.include_router(prompts.router, tags=["prompts"])
 # V-5: Groups management router
 from app.api import groups
 app.include_router(groups.router, prefix="/api/groups", tags=["groups"])
+
+# V-6, V-19: Research router (nested under groups)
+from app.api import research
+app.include_router(research.router, prefix="/api/groups", tags=["research"])
+
+# V-11, V-12, V-19: Group articles router (nested under groups)
+from app.api import group_articles
+app.include_router(group_articles.router, prefix="/api/groups", tags=["group-articles"])
 
 
 @app.get("/health")

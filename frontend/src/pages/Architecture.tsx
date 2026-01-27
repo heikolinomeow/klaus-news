@@ -28,6 +28,19 @@ export default function Architecture() {
           </div>
 
           <div className="flow-stage">
+            <div className="flow-box refetch-prevention">
+              <h3>Refetch Prevention (2 Layers)</h3>
+              <ul>
+                <li><strong>Layer 1 - X API:</strong> since_id parameter prevents re-fetching at API level</li>
+                <li><strong>Layer 2 - Database:</strong> post_id check catches cross-list duplicates</li>
+                <li>Each list tracks its own last_tweet_id independently</li>
+                <li>New lists: first fetch gets recent posts, then only newer ones</li>
+              </ul>
+            </div>
+            <div className="flow-arrow">↓</div>
+          </div>
+
+          <div className="flow-stage">
             <div className="flow-box-group">
               <div className="flow-box ai-processing">
                 <h3>AI Processing (OpenAI)</h3>

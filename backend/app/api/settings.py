@@ -98,6 +98,52 @@ async def update_setting(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid numeric value")
 
+    # V-4, V-16: Categories-specific validation
+    if key == 'categories':
+        import json
+        try:
+            new_categories = json.loads(request.value)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON format for categories")
+
+        # Get existing categories for comparison
+        existing_value = setting.value
+        try:
+            existing_categories = json.loads(existing_value) if existing_value else []
+        except json.JSONDecodeError:
+            existing_categories = []
+
+        existing_names = {cat.get("name") for cat in existing_categories}
+        existing_ids = {cat.get("id") for cat in existing_categories}
+
+        # Validation rules from V-16
+        for cat in new_categories:
+            # Category name: Required, 1-50 chars
+            name = cat.get("name", "")
+            if not name or len(name) > 50:
+                raise HTTPException(status_code=400, detail=f"Category name must be 1-50 characters: '{name}'")
+
+            # Category description: Required, 1-300 chars
+            desc = cat.get("description", "")
+            if not desc or len(desc) > 300:
+                raise HTTPException(status_code=400, detail=f"Category description must be 1-300 characters for '{name}'")
+
+            # Reserved name: "Other" cannot be used
+            if name.lower() == "other":
+                raise HTTPException(status_code=400, detail="'Other' is a reserved category name and cannot be used")
+
+            # Immutable after creation: Check if name changed for existing categories
+            cat_id = cat.get("id")
+            if cat_id and cat_id in existing_ids:
+                # Find original name
+                for existing in existing_categories:
+                    if existing.get("id") == cat_id and existing.get("name") != name:
+                        raise HTTPException(status_code=400, detail=f"Category names cannot be changed after creation (attempted to rename '{existing.get('name')}' to '{name}')")
+
+        # Max categories: 20
+        if len(new_categories) > 20:
+            raise HTTPException(status_code=400, detail="Maximum 20 categories allowed")
+
     # Update value
     db.execute(
         update(SystemSettings)
@@ -163,7 +209,6 @@ async def reset_all_settings(db: Session = Depends(get_db)):
         'posts_per_fetch': '5',
         'worthiness_threshold': '0.6',
         'duplicate_threshold': '0.85',
-        'enabled_categories': '["Technology","Politics","Business","Science","Health","Other"]',
         'scheduler_paused': 'false'
     }
 
@@ -213,3 +258,54 @@ async def validate_setting(
         return {"valid": True, "message": "Value is valid"}
     except ValueError:
         return {"valid": False, "message": "Invalid value type"}
+
+
+@router.get("/article-prompts/")
+async def get_article_prompts(db: Session = Depends(get_db)):
+    """Get all four article style prompts (V-10, V-19)"""
+    PROMPT_KEYS = [
+        'article_prompt_news_brief',
+        'article_prompt_full_article',
+        'article_prompt_executive_summary',
+        'article_prompt_analysis'
+    ]
+
+    prompts = {}
+    for key in PROMPT_KEYS:
+        setting = db.execute(
+            select(SystemSettings).where(SystemSettings.key == key)
+        ).scalar_one_or_none()
+
+        style_name = key.replace('article_prompt_', '')
+        prompts[style_name] = setting.value if setting else ''
+
+    return {"prompts": prompts}
+
+
+@router.put("/article-prompts/")
+async def update_article_prompts(
+    prompts: Dict[str, str],
+    db: Session = Depends(get_db)
+):
+    """Update article style prompts (V-10, V-19)"""
+    from sqlalchemy import update
+
+    VALID_STYLES = ['news_brief', 'full_article', 'executive_summary', 'analysis']
+
+    for style, prompt_text in prompts.items():
+        if style not in VALID_STYLES:
+            raise HTTPException(status_code=400, detail=f"Invalid style: {style}")
+
+        key = f'article_prompt_{style}'
+        db.execute(
+            update(SystemSettings)
+            .where(SystemSettings.key == key)
+            .values(value=prompt_text)
+        )
+
+    db.commit()
+
+    # Invalidate cache
+    SettingsService().invalidate_cache()
+
+    return {"message": f"Updated {len(prompts)} article prompts"}

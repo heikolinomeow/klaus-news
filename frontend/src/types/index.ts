@@ -58,9 +58,38 @@ export interface Group {
   representative_title: string;
   category: string;
   first_seen: string;
+  state?: 'NEW' | 'COOKING' | 'REVIEW' | 'PUBLISHED';
+  archived?: boolean;
+  selected?: boolean;
+  representative_summary?: string;
   post_count: number;
 }
 
 export interface GroupsResponse {
   groups: Group[];
+}
+
+// V-18: Research types
+export interface GroupResearch {
+  id: number;
+  group_id: number;
+  research_mode: 'quick' | 'agentic' | 'deep';
+  original_output: string;
+  edited_output: string | null;
+  sources: Array<{ url: string; title: string }>;
+  model_used: string;
+  created_at: string;
+  updated_at: string | null;
+}
+
+// V-18: Group Article types
+export interface GroupArticle {
+  id: number;
+  group_id: number;
+  research_id: number | null;
+  style: 'news_brief' | 'full_article' | 'executive_summary' | 'analysis' | 'custom';
+  prompt_used: string;
+  content: string;
+  created_at: string;
+  updated_at: string | null;
 }

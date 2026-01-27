@@ -1,108 +1,347 @@
-# AI-Powered Duplicate Detection via Title Semantic Comparison
+# Product Brief: AI Research & Article Generation
 
-## 1. Problem Statement
-
-### 1.1 Current Implementation Limitations
-
-**Requirement (Merged Narrative)**
-
-The current duplicate detection system compares raw tweet text using TF-IDF. This approach is noisy because tweets contain hashtags, mentions, links, emoji, and different writing styles. Two tweets about the same story often don't match well.
-
-The current data model stores posts with a `group_id` (just a UUID). When comparing a new post, the system has no clear logic for what to compare against—all posts in a group, the first post, or a random post. There is no clear "representative" for each story.
-
-**Constraints / Non-Goals**
-
-The current approach using TF-IDF on noisy tweets is insufficient for accurate duplicate detection.
+**Feature Name:** AI Research & Article Generation
+**Priority:** High
+**Target Release:** v1.2
+**Status:** Proposal
+**Owner:** Product Team
+**Last Updated:** 2026-01-26
 
 ---
 
-## 2. Proposed Solution
+## 1. Overview
 
-### 2.1 Detection Method
+### 1.1 Summary
 
-**Requirement (Merged Narrative)**
+When users move a group from "New" to "Cooking", they need to generate articles based on the grouped posts. This feature introduces an optional two-step workflow: **Research (optional) → Generate Article**. Users can run AI-powered web research (with three depth levels), review/edit the research output alongside the posts, then generate an article. Alternatively, users can skip research and generate directly for quick drafts.
 
-Replace TF-IDF comparison with AI semantic comparison of AI-generated titles. The system already generates AI titles for incoming posts. These titles extract the core topic and normalize the noise—for example, "BREAKING: Apple launches iPhone 16! 🔥 #Apple" and "Apple just announced new iPhone 16 https://..." both become "Apple Announces iPhone 16."
+### 1.2 Business Impact
 
-Use a cheap AI model (GPT-4o-mini, approximately $0.002 per post) to semantically compare titles using the prompt: "Are these about the same news story? YES/NO"
-
-Compare within category and last 7 days only. This constraint reduces cost and improves accuracy.
-
-**Acceptance Criteria**
-
-- AI titles are generated for incoming posts (already implemented)
-- GPT-4o-mini performs semantic comparison of titles
-- Comparison uses the prompt: "Are these about the same news story? YES/NO"
-- Comparison is scoped to same category and last 7 days only
-
-**Constraints / Non-Goals**
-
-- Cost per post: approximately $0.002 using GPT-4o-mini
-- Comparison limited to category and 7-day window
+- Higher quality articles with verified facts and context
+- User control over AI research before committing to generation
+- Flexible cost/speed tradeoffs via tiered research modes
+- Transparency into what sources AI uses
 
 ---
 
-## 3. Architectural Changes
+## 2. Core Workflow
 
-### 3.1 Groups as First-Class Entities
+### 2.1 State Flow
 
-**Requirement (Merged Narrative)**
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│    NEW      │────▶│   COOKING   │────▶│   REVIEW    │────▶│  PUBLISHED  │
+│   Groups    │     │  Research   │     │   Article   │     │   Article   │
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+```
 
-Introduce a Groups table as an explicit entity representing a news story. The Groups table contains:
+### 2.2 Cooking Options
 
-- Representative title (canonical version)
-- Category
-- First seen timestamp
-- Post count
+**Option A: With Research**
+1. Select research mode
+2. Run research
+3. Review & edit research output
+4. Generate article
 
-The Posts table contains individual instances belonging to a group. Each post has its own `ai_title` and references a group via foreign key.
-
-The mental model: Every incoming post either joins an existing group or becomes a new group.
-
-**Acceptance Criteria**
-
-- Groups table exists with fields: representative title, category, first seen timestamp, post count
-- Posts table has foreign key reference to Groups
-- Each post stores its own `ai_title`
-- Incoming posts are assigned to existing groups or create new groups
-
-**Constraints / Non-Goals**
-
-- This replaces the current broken model where posts have `group_id` with no clear representative
+**Option B: Quick (No Research)**
+- Skip research and generate article directly
 
 ---
 
-## 4. UX Improvements
+## 3. Research Feature
 
-### 4.1 Group-Based Display
+### 3.1 Research Modes
 
-**Requirement (Merged Narrative)**
+Three research modes are available. Default is Agentic Research (best balance of quality/cost/speed).
 
-Replace the current UX where PostList shows one post per `group_id` and hidden duplicates are invisible with no context about how many similar posts exist.
+| Mode | Model | How It Works | Speed | Cost |
+|------|-------|--------------|-------|------|
+| **Quick Research** | `gpt-5-search-api` | Single search pass, returns basic facts | Fast (seconds) | $ |
+| **Agentic Research** | `o4-mini` + web_search | Model reasons, searches iteratively, decides when done | Medium (30s-2min) | $$ |
+| **Deep Research** | `o3-deep-research` | Exhaustive multi-source investigation, hundreds of sources | Slow (minutes) | $$$ |
 
-The new UX displays groups as cards with a representative title. A badge shows post count (e.g., "5 posts about this story"). Users can click to expand and see all variations. This allows users to understand story popularity and coverage, and to pick which version to use for article generation.
+### 3.2 Run Research
 
-**Acceptance Criteria**
+**Requirement:**
+Users can run AI research on a group before generating an article to see verified facts and context.
 
-- Groups are displayed as cards with representative title
-- Badge displays post count in format "N posts about this story"
-- Users can click to expand and view all post variations
-- Users can select which post version to use for article generation
+**Acceptance Criteria:**
+- Research mode selector displays three options: Quick / Agentic / Deep
+- "Run Research" button triggers the selected mode
+- Loading state displays while research runs
+- Research output appears in right panel upon completion
+- User can re-run research with a different mode
 
-**Constraints / Non-Goals**
+### 3.3 Review Research Side-by-Side
 
-- Current UX limitation: PostList shows one post per group_id, duplicates are invisible, no visibility into story depth
+**Requirement:**
+Users can view research output alongside the posts to compare sources with AI findings.
+
+**Acceptance Criteria:**
+- Split-panel view: Posts on left, Research on right
+- Research output shows four sections: Background, Key Facts, Related Context, Sources
+- Sources are clickable links
+- Clear visual hierarchy
+
+### 3.4 Edit Research Output
+
+**Requirement:**
+Users can edit the research output before generating an article to remove irrelevant information, add notes, or correct errors.
+
+**Acceptance Criteria:**
+- "Edit" button enables editing mode
+- User can modify any text in research output
+- User can add personal notes/instructions for article generation
+- "Reset to Original" option is available
+- Edits persist until article is generated
 
 ---
 
-## 5. Expected Benefits
+## 4. Article Generation
 
-**Requirement (Merged Narrative)**
+### 4.1 Article Styles
 
-This approach delivers the following benefits:
+Users select one of four predefined styles (or use a custom prompt). Each style has a different prompt template that is configurable in Settings.
 
-- **Accuracy**: Semantic comparison on clean titles vs fuzzy matching on noisy tweets
-- **Cost**: Negligible (~$0.002/post for GPT-4o-mini)
-- **Scalability**: Compare against ~100 group titles, not ~1000 individual posts
-- **UX**: Clear story grouping, visibility into coverage depth
-- **Architecture**: Clean separation of concerns (Groups = topics, Posts = instances)
+| Style | Description | Use Case |
+|-------|-------------|----------|
+| **News Brief** | Short, factual, 2-3 paragraphs | Quick updates, breaking news |
+| **Full Article** | Comprehensive coverage, multiple sections | In-depth reporting |
+| **Executive Summary** | Business-focused, key takeaways | Leadership briefings |
+| **Analysis** | Opinion/commentary, explores implications | Thought leadership |
+
+**Custom Prompt:** User can write their own prompt instead of using a preset.
+
+### 4.2 Settings Integration
+
+- All four style prompts are editable in Settings
+- Admins can customize prompts to match company voice/format
+- Changes apply to all future article generations
+
+### 4.3 Generate Article
+
+**Requirement:**
+Users can generate an article using posts and optional research. Article generation is always available (research is optional). Users get a well-informed article when research exists, or a quick draft without research.
+
+**Acceptance Criteria:**
+- "Generate Article" button is always enabled (research is optional)
+- User selects article style: News Brief / Full Article / Executive Summary / Analysis / Custom
+- If custom style selected: user enters their own prompt
+- If research exists: article generation uses posts + edited research as context
+- If no research: article generation uses posts only (simpler output)
+- Article output is plain text with paragraphs (formatted for Teams)
+- Article is saved to database
+- Article appears for review/refinement
+
+---
+
+## 5. Article Refinement
+
+### 5.1 Conversational Refinement
+
+**Requirement:**
+Users can refine the generated article by giving instructions to adjust tone, add details, or fix issues without regenerating from scratch.
+
+**Acceptance Criteria:**
+- After article is generated, user sees article + input field for refinement
+- User types instruction (e.g., "Make it shorter", "Add more context about the CEO", "Make the tone more formal")
+- System uses: current article + research + posts + user instruction to generate refined version
+- Refined article replaces previous version (no multiple drafts)
+- Refinement history is NOT stored (only latest article version)
+- User can refine multiple times until satisfied
+
+**Example Refinement Flow:**
+```
+User: "Make the opening paragraph more attention-grabbing"
+→ AI regenerates with instruction, using full context
+→ New article replaces old
+→ User can refine again or finalize
+```
+
+---
+
+## 6. User Interface
+
+### 6.1 Cooking View Layout
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  COOKING                                                     [Settings] │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─ POSTS ──────────────────────┬─ RESEARCH OUTPUT ────────────────────┐│
+│  │                              │                                      ││
+│  │ ┌──────────────────────────┐ │ ┌──────────────────────────────────┐ ││
+│  │ │ @user1: Breaking news... │ │ │ ## Background                    │ ││
+│  │ │ Score: 0.87              │ │ │ Company X announced today...     │ ││
+│  │ └──────────────────────────┘ │ │                                  │ ││
+│  │ ┌──────────────────────────┐ │ │ ## Key Facts Verified            │ ││
+│  │ │ @user2: This confirms... │ │ │ • Revenue up 20% YoY [1]         │ ││
+│  │ │ Score: 0.82              │ │ │ • CEO statement from Jan 15 [2]  │ ││
+│  │ └──────────────────────────┘ │ │ • Competitor Y also moving [3]   │ ││
+│  │ ┌──────────────────────────┐ │ │                                  │ ││
+│  │ │ @user3: Just announced...│ │ │ ## Related Context               │ ││
+│  │ │ Score: 0.79              │ │ │ Industry trend toward...         │ ││
+│  │ └──────────────────────────┘ │ │                                  │ ││
+│  │                              │ │ ## Sources                       │ ││
+│  │                              │ │ [1] reuters.com/...              │ ││
+│  │                              │ │ [2] techcrunch.com/...           │ ││
+│  │                              │ │ [3] ft.com/...                   │ ││
+│  │                              │ └──────────────────────────────────┘ ││
+│  │                              │                             [Edit]   ││
+│  └──────────────────────────────┴──────────────────────────────────────┘│
+│                                                                         │
+│  [Research: Agentic ▼]  [Run Research]   [Style: News Brief ▼]  [Generate] │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.2 Article View Layout
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  ARTICLE                                                     [Settings] │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─ GENERATED ARTICLE ─────────────────────────────────────────────────┐│
+│  │                                                                     ││
+│  │  EU Passes Landmark AI Regulation Bill                              ││
+│  │                                                                     ││
+│  │  The European Union has passed a comprehensive artificial           ││
+│  │  intelligence regulation bill, marking a significant milestone      ││
+│  │  in global tech governance.                                         ││
+│  │                                                                     ││
+│  │  The legislation, approved by a vote of 523-45, establishes         ││
+│  │  strict guidelines for AI development and deployment...             ││
+│  │                                                                     ││
+│  └─────────────────────────────────────────────────────────────────────┘│
+│                                                                         │
+│  ┌─ REFINE ARTICLE ────────────────────────────────────────────────────┐│
+│  │  Type instructions to refine the article...                         ││
+│  │  e.g., "Make it shorter" or "Add more context about enforcement"    ││
+│  └─────────────────────────────────────────────────────────────────────┘│
+│                                                           [Refine]      │
+│                                                                         │
+│  [← Back to Research]    [Copy to Clipboard]    [Mark as Published]    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.3 Cooking View States
+
+| State | Posts Panel | Research Panel | Actions |
+|-------|-------------|----------------|---------|
+| **Initial** | Shows posts | Empty placeholder | [Run Research] [Generate] both enabled |
+| **Researching** | Shows posts | Loading spinner | [Generate] enabled, [Run Research] disabled |
+| **Research Complete** | Shows posts | Research output | [Edit] [Re-run] [Generate] |
+| **Editing Research** | Shows posts | Editable text | [Save] [Cancel] [Reset] |
+
+### 6.4 Article View States
+
+| State | Article Panel | Refine Panel | Actions |
+|-------|---------------|--------------|---------|
+| **Generating** | Loading spinner | Disabled | All buttons disabled |
+| **Generated** | Shows article | Input enabled | [Refine] [Copy] [Back] [Publish] |
+| **Refining** | Shows article (dimmed) | Loading | Buttons disabled |
+
+---
+
+## 7. Technical Specification
+
+### 7.1 OpenAI API Integration
+
+**Quick Research:**
+```python
+response = client.responses.create(
+    model="gpt-5-search-api",
+    tools=[{"type": "web_search"}],
+    input=research_prompt
+)
+```
+
+**Agentic Research:**
+```python
+response = client.responses.create(
+    model="o4-mini",
+    tools=[{"type": "web_search"}],
+    input=research_prompt
+)
+```
+
+**Deep Research:**
+```python
+response = client.responses.create(
+    model="o3-deep-research",
+    input=research_prompt
+)
+```
+
+### 7.2 Database Schema
+
+```sql
+-- Research storage
+CREATE TABLE group_research (
+    id SERIAL PRIMARY KEY,
+    group_id INTEGER REFERENCES groups(id) NOT NULL,
+    research_mode VARCHAR NOT NULL,      -- 'quick', 'agentic', 'deep'
+    original_output TEXT NOT NULL,       -- AI-generated research
+    edited_output TEXT,                  -- User-edited version
+    sources JSONB,                       -- Source URLs with metadata
+    model_used VARCHAR NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Article storage
+CREATE TABLE group_articles (
+    id SERIAL PRIMARY KEY,
+    group_id INTEGER REFERENCES groups(id) NOT NULL,
+    research_id INTEGER REFERENCES group_research(id),  -- NULL if generated without research
+    style VARCHAR NOT NULL,              -- 'news_brief', 'full_article', 'executive_summary', 'analysis', 'custom'
+    prompt_used TEXT NOT NULL,           -- The actual prompt used (for custom or resolved preset)
+    content TEXT NOT NULL,               -- The generated article (plain text)
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()   -- Updated on each refinement
+);
+
+-- Article style prompts in system_settings (from Settings feature)
+-- Keys: 'article_prompt_news_brief', 'article_prompt_full_article',
+--       'article_prompt_executive_summary', 'article_prompt_analysis'
+```
+
+### 7.3 API Endpoints
+
+```
+# Research
+POST   /api/groups/{id}/research/          # Run research
+GET    /api/groups/{id}/research/          # Get research
+PUT    /api/groups/{id}/research/          # Save edits
+
+# Article
+POST   /api/groups/{id}/article/           # Generate article (style + optional custom prompt)
+GET    /api/groups/{id}/article/           # Get current article
+PUT    /api/groups/{id}/article/refine/    # Refine article with instruction
+
+# Settings (existing, extended)
+GET    /api/settings/article-prompts/      # Get all four style prompts
+PUT    /api/settings/article-prompts/      # Update style prompts
+```
+
+---
+
+## 8. Design Decisions
+
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| Auto-run research when entering Cooking? | **No** | User must explicitly trigger research to control costs |
+| Show cost estimate before Deep Research? | **No** | Keep UI simple, avoid friction |
+| Allow generation without research? | **Yes** | Flexibility - user can skip research for quick drafts |
+| Article output format? | **Plain text with paragraphs** | Will be published to Teams |
+| Article styles? | **Four presets + custom** | Configurable prompts in Settings |
+| Store research & articles? | **Yes** | Both saved to database |
+| Multiple article drafts? | **No** | Single version, refined in place |
+| How to refine articles? | **Conversational** | User types instruction, AI refines using full context |
+
+---
+
+**End of Brief**

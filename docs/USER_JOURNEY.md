@@ -2,8 +2,8 @@
 
 ## Current Implementation Status
 
-**Status:** Core post browsing features fully functional, article workflow UI incomplete
-**Last Updated:** 2026-01-25
+**Status:** Core post browsing features fully functional, Settings complete, Research & Article Generation feature added (backend ready, UI incomplete)
+**Last Updated:** 2026-01-26
 
 This document describes what users **CAN currently do** with Klaus News from a UX/UI/feature perspective, including detailed visual design, interaction patterns, and navigation structure.
 
@@ -199,6 +199,11 @@ For the application to display content, posts must exist in the database. Posts 
 - Fresh installation → empty database → UI shows "No posts available"
 - After scheduler runs → posts ingested → UI displays content
 
+**Duplicate Prevention:**
+- The system ensures no post is fetched twice from X/Twitter
+- Each list tracks its last fetched position independently
+- Even manual "fetch now" triggers respect this - recently fetched lists may return few or no new posts
+
 ---
 
 ## Phase 0: System Configuration ✅ FULLY FUNCTIONAL
@@ -324,7 +329,7 @@ Before browsing posts, users can configure system behavior through the Settings 
 - Full prompt configuration displayed inline
 - **Fields:**
   - Prompt Text: Large textarea (15 rows, monospace font)
-  - Model: Dropdown (GPT-4 Turbo, GPT-3.5 Turbo)
+  - Model: Dropdown (GPT-5.2, GPT-5.1, GPT-5, GPT-5 Mini, GPT-4.1, GPT-4.1 Mini, and legacy models)
   - Temperature: Range slider (0.0 - 2.0, shows value like "1.20")
   - Max Tokens: Number input (10 - 4000)
   - Description: Text input (optional)
@@ -399,36 +404,62 @@ Before browsing posts, users can configure system behavior through the Settings 
 
 **What's Inside:**
 
-**Embedded Prompt Tile: `categorize_post`**
-- Same structure as other prompt tiles
-- Full inline editing of categorization prompt
-- Independent Save and Reset buttons
+The Category Filters section contains **three subsections**:
 
-**Category Selection Controls:**
-- **H4 Title:** "Category Selection"
-- **Description:** "Control which content categories are processed by the system."
-- **Category Checkboxes:** (2-column grid)
-  - Technology
-  - Politics
-  - Business
-  - Science
-  - Health
-  - Other
-- **Checkbox Style:**
-  - 16px checkboxes with blue accent (#60a5fa)
-  - Each in a rounded box with hover effect
-  - Box highlights blue border on hover
-- **Help Text:**
-  - "Only posts in enabled categories will be processed and displayed."
-  - Shows count: "X of 6 categories enabled"
-- **Behavior:** Saves immediately when checkbox toggled (no separate save button needed)
+**Subsection 1: Categorization Prompt**
+- PromptTile showing `categorize_post` skeleton with `{{CATEGORIES}}` placeholder visible
+- Includes [Edit] and [Reset] buttons
+- Placeholder is replaced at runtime with category definitions
+
+**Subsection 2: Categories List**
+- Editable cards for each user-defined category (name displayed, description in editable textarea with [Save] button)
+- "Other" card shown with lock icon (🔒), non-editable
+- [+ Add New Category] button below category list
+- Helper text: "Category names cannot be changed or deleted to preserve existing post assignments. Descriptions can be edited anytime."
+
+**Subsection 3: Category Matching Stats**
+- Displays mismatch count (e.g., "Category mismatches: 12")
+- Description: "Posts where AI returned unrecognized category and fell back to 'Other'"
+- Includes [View Log] and [Clear] buttons
 
 **What Users Experience:**
-- ✅ Edit AI prompt for post categorization
-- ✅ Enable/disable content categories with checkboxes
-- ✅ See category count (e.g., "5 of 6 categories enabled")
-- ✅ Changes apply immediately to filtering (saved on toggle)
-- ✅ Only enabled categories are processed and shown
+- ✅ Edit AI prompt for post categorization (with `{{CATEGORIES}}` placeholder visible)
+- ✅ View all user-defined categories as editable cards
+- ✅ Edit category descriptions (Save button per card)
+- ✅ Add new categories via [+ Add New Category] modal
+- ✅ See "Other" category with lock icon (non-editable)
+- ✅ View category mismatch count and log
+- ✅ Clear mismatch log via [Clear] button
+- ✅ Cannot delete, rename, or reorder categories (preserves data integrity)
+
+#### Add New Category Modal
+
+**Triggered by:** [+ Add New Category] button in Categories List
+
+**Modal Contents:**
+- **Name field**: Label "Name (cannot be changed later)"
+- **Description field**: Label "Description (can be edited anytime)"
+- **Warning text**: "Category name is permanent once created."
+- **Buttons**: [Cancel] and [Create Category]
+
+**Validation:**
+- Name must be unique (not match existing category)
+- Name cannot be "Other" (reserved)
+- Name: 1-50 characters
+- Description: 1-300 characters
+
+#### Category Mismatch Log Modal
+
+**Triggered by:** [View Log] button in Category Matching Stats
+
+**Modal Contents:**
+- **Header**: "These posts received unrecognized category responses from AI and were assigned to 'Other'."
+- **Entry format**: Timestamp, AI response, expected categories, post snippet, assigned category
+- **Button**: [Clear All Logs]
+
+**Behavior:**
+- Displays up to 100 entries (oldest removed when limit reached)
+- Cleared via [Clear All Logs] button (calls PUT /api/settings/category_mismatches with empty array)
 
 ---
 
@@ -468,6 +499,17 @@ Before browsing posts, users can configure system behavior through the Settings 
 - ✅ Save each prompt independently
 - ✅ Reset each prompt to defaults independently
 - ✅ All prompts displayed inline, no navigation required
+
+
+**Article Style Prompts (Four Presets):**
+
+Settings now includes four article style prompts that control article generation:
+- article_prompt_news_brief: Template for short, factual updates
+- article_prompt_full_article: Template for comprehensive coverage
+- article_prompt_executive_summary: Template for business-focused summaries
+- article_prompt_analysis: Template for opinion/commentary pieces
+
+Each prompt is editable via Settings → Content tile → Articles section. Changes apply to all future article generations.
 
 ---
 
@@ -577,7 +619,9 @@ Before browsing posts, users can configure system behavior through the Settings 
 
 **Subsection: Archival Settings**
 - **H4 Title:** "Archival Settings"
-- **Description:** "Configure automatic archival of old unselected posts."
+- **Description:** "Configure automatic archival of old groups."
+
+**Note:** Archival now operates at the group level. Groups (not individual posts) are archived based on age criteria.
 - **Archive Age Input:**
   - Number input: 1-30 days
   - Label: "Archive Age (days):"
@@ -708,7 +752,102 @@ Before browsing posts, users can configure system behavior through the Settings 
 - Useful for onboarding and troubleshooting
 - Values in boxes (e.g., "30 minutes", "5 posts") are static text, not live data
 
-### 0.6 Cooking Page (Placeholder)
+### 0.6 System Logs & Monitoring
+**User Action:** Navigate to `/settings/system`, expand "System Logs" section in System Control tile (right column)
+
+**Section Structure:**
+
+**Header Section:**
+- **Title:** "System Logs" (H3, left-aligned)
+- **Error Badge:** If errors exist, displays count (e.g., "3 errors") in red badge
+- **Expand Icon:** Arrow icon (▼) rotates when section expands
+
+**Stats Cards (When Expanded):**
+Three stat cards displayed in grid layout:
+1. **Total Logs:** Shows count of all logs in time window (blue accent)
+2. **Errors:** Shows ERROR + CRITICAL count (red text)
+3. **Time Window:** Shows current filter (e.g., "24h")
+
+**Filters Section:**
+Four filter controls side-by-side:
+- **Level Dropdown:** All, DEBUG, INFO, WARNING, ERROR, CRITICAL
+- **Category Dropdown:** All, API, Scheduler, External API, Database
+- **Hours Dropdown:** Last 1 hour, Last 6 hours, Last 24 hours, Last 3 days, Last 7 days
+- **Refresh Button:** Manually reload logs (secondary style)
+
+**Recent Logs Table:**
+- **Columns:**
+  1. **Timestamp:** Formatted date/time (e.g., "1/27/2026, 3:45:12 PM")
+  2. **Level:** Color-coded badge (DEBUG: gray, INFO: blue, WARNING: yellow, ERROR: red, CRITICAL: dark red)
+  3. **Category:** API, Scheduler, External API, Database, or "N/A"
+  4. **Logger:** Logger name (e.g., "klaus_news.x_client") in monospace font with purple color
+  5. **Message:** Log message (truncated with ellipsis if long)
+  6. **Actions:** "Details" button (secondary style)
+- **Row Highlighting:**
+  - ERROR and CRITICAL logs have red background tint (rgba(239, 68, 68, 0.1))
+  - All rows have hover effect
+- **Empty State:** "No logs found for the selected filters." if no logs match
+
+**Log Cleanup Section:**
+- **Title:** "Log Cleanup" (H4)
+- **Description:** "Delete logs older than a specified number of days."
+- **Days Input:** Number field (min 7, max 90, default 7)
+- **Cleanup Button:** "Cleanup Old Logs" (primary style, disabled during operation)
+- **Help Text:** "This will delete all logs older than X days. Minimum 7 days retention."
+
+**Log Detail Modal (When Details Clicked):**
+- **Modal Header:** "Log Details" with close button (×)
+- **Modal Body Sections:**
+  - **Timestamp:** Full timestamp display
+  - **Level:** Level badge (color-coded)
+  - **Logger:** Logger name
+  - **Category:** Category or "N/A"
+  - **Message:** Full message in pre-formatted block
+  - **Exception Type:** (If error) Exception class name in red
+  - **Exception Message:** (If error) Error message in pre-formatted block
+  - **Stack Trace:** (If error) Full stack trace in monospace font with scrolling
+  - **Context:** (If present) JSON context as formatted code block
+  - **Correlation ID:** (If present) ID for tracing related logs
+- **Modal Footer:** "Close" button (primary style)
+
+**What Users Experience:**
+- ✅ View all application logs with historical storage (7-day retention by default)
+- ✅ See X API errors (like 402 Payment Required) that were previously hidden
+- ✅ Track scheduler job execution and failures
+- ✅ Filter logs by level, category, and time range
+- ✅ See error count badge in section header for quick status
+- ✅ Click on any log to view full details including stack traces
+- ✅ Manually cleanup old logs (7-90 days configurable)
+- ✅ Color-coded level badges for quick identification
+- ✅ Real-time filtering updates table instantly
+- ✅ Logs automatically retained for configured period (daily cleanup at 4 AM)
+
+**Technical Visibility:**
+- **X API Errors:** Previously silent 402 errors now visible with status code and response body
+- **Scheduler Jobs:** Start/completion of ingestion and archival jobs logged
+- **OpenAI Calls:** API calls with parameters and success/failure status
+- **Teams Posts:** Webhook posting attempts with results
+- **Database Operations:** Connection issues and query failures
+
+**UX Notes:**
+- Error badge in section header provides at-a-glance status
+- Default 24-hour window focuses on recent activity
+- Table rows with errors are highlighted in red for immediate attention
+- Stack traces are scrollable to avoid modal overflow
+- Context JSON is pretty-printed for readability
+- Logger names use monospace font to indicate technical nature
+- Cleanup enforces 7-day minimum to prevent accidental data loss
+
+**Use Cases:**
+- **Debugging API Issues:** View X API 402 errors to diagnose credit depletion
+- **Monitoring Health:** Check error count badge for system health
+- **Troubleshooting:** View stack traces when articles fail to generate
+- **Audit Trail:** Review scheduler job execution history
+- **Performance:** Track OpenAI API response times via log timestamps
+
+---
+
+### 0.7 Cooking Page (Placeholder)
 **User Action:** Navigate to `/cooking` by clicking "Cooking" link in main header navigation
 
 **Page Layout:**
@@ -722,10 +861,10 @@ Before browsing posts, users can configure system behavior through the Settings 
 - Large padding (40px)
 
 **What This Is:**
-- Placeholder page for future feature
-- No functionality implemented yet
-- Maintains navigation consistency
-- Reserved route for future cooking-related content
+- Reserved route for Cooking workflow (Research & Article Generation)
+- Backend fully implemented, UI not built
+- Will contain split-panel view: Posts (left) + Research Output (right)
+- Action bar will have: Research mode selector, Run Research button, Style selector, Generate Article button
 
 **What Users Experience:**
 - ✅ Can navigate to page from main header
@@ -737,6 +876,59 @@ Before browsing posts, users can configure system behavior through the Settings 
 - Common pattern to reserve navigation for planned features
 - Users understand this is not yet implemented
 - Page exists in navigation to show product roadmap
+
+---
+
+## Phase 2: Cooking Workflow (Research & Article Generation)
+
+### Phase 2: Cooking Workflow ✅ BACKEND READY, ❌ UI NOT IMPLEMENTED
+
+The Cooking workflow enables users to generate articles from grouped posts with optional AI research.
+
+#### 2.1 Group State Machine
+**States:** NEW → COOKING → REVIEW → PUBLISHED
+- NEW: Fresh groups ready for article generation
+- COOKING: Group undergoing research/article preparation
+- REVIEW: Article generated, ready for refinement
+- PUBLISHED: Article finalized and posted
+
+#### 2.2 Research Workflow (Optional)
+**Three Research Modes:**
+- **Quick Research:** gpt-5-search-api, single search pass, fast (seconds), low cost
+- **Agentic Research:** o4-mini + web_search, iterative reasoning, medium speed (30s-2min), medium cost (default)
+- **Deep Research:** o3-deep-research, exhaustive investigation, slow (minutes), high cost
+
+**User Actions (When UI Implemented):**
+- Select research mode from dropdown
+- Click 'Run Research' to execute
+- View research output in right panel (Background, Key Facts, Related Context, Sources)
+- Edit research output before article generation
+- Reset to original research if needed
+
+#### 2.3 Article Generation
+**Article Styles (Four Presets + Custom):**
+- News Brief: Short, factual, 2-3 paragraphs
+- Full Article: Comprehensive coverage, multiple sections
+- Executive Summary: Business-focused, key takeaways
+- Analysis: Opinion/commentary, explores implications
+- Custom: User-defined prompt
+
+**Generation Modes:**
+- With Research: Uses posts + edited research as context
+- Without Research: Uses posts only for quick drafts
+
+**Backend Status:** ✅ Fully implemented
+**Frontend Status:** ❌ UI not built
+
+#### 2.4 Article Refinement
+**Conversational Refinement:**
+- User provides instruction (e.g., 'Make it shorter', 'Add more context')
+- System uses: current article + research + posts + instruction
+- Refined article replaces previous version (no draft history)
+- Can refine multiple times until satisfied
+
+**Backend Status:** ✅ Fully implemented
+**Frontend Status:** ❌ UI not built
 
 ---
 
@@ -804,11 +996,14 @@ Users can browse and explore AI-curated posts from X (Twitter):
 - No grouping by category in UI (flat list)
 - Groups displayed with representative title, expand/collapse to see post variations (V-5)
 
-**Group Card Display (V-5):**
+**Group Card Display (V-6/V-7):**
 - Each group displayed as card with representative title
-- Badge shows post count: "N posts about this story"
-- Click to expand and see all post variations
-- Select individual post from expanded view for article generation
+- Category badge shows content type
+- Post count displays as "N sources"
+- First seen date shown
+- Expand arrow to view underlying posts
+- "Write Article" button on group header (V-8)
+- "Archive" button on group header (V-9)
 
 **Each Post Card Contains:**
 - **Title (H3):**
@@ -822,7 +1017,7 @@ Users can browse and explore AI-curated posts from X (Twitter):
   - Class: "post-summary"
 - **Metadata Row:**
   - **Category Badge:**
-    - Shows category name (Technology, Politics, Business, Science, Health, Other)
+    - Shows category name (Major News, Automation, Coding, Content Creation, Other)
     - Or "Uncategorized" if missing
     - Styled with "post-category" class
   - **Worthiness Score:**
@@ -848,8 +1043,8 @@ Users can browse and explore AI-curated posts from X (Twitter):
 
 **Filtering Behavior (Backend):**
 - Recommended view filters out low-quality content (score < threshold)
-- Only shows fresh, unarchived posts (archived = false)
-- Posts already selected by user are hidden (is_selected = false)
+- Only shows active (non-archived) groups (group.archived = false)
+- Groups already selected by user are hidden (group.selected = true)
 - Only enabled categories are shown (respects Settings configuration)
 
 **UX Notes:**
@@ -894,13 +1089,15 @@ Users can browse and explore AI-curated posts from X (Twitter):
 ---
 
 #### 1.4 Select a Post
-**User Action:** Click on any post card (Recommended or All Posts view)
+**User Action:** Click "Write Article" button on any group card (Recommended or All Posts view)
+
+**Note:** Selection now happens at the group level, not individual posts. When a group is selected, ALL posts in that group become source material for article generation.
 
 **Current Behavior:**
 
 **What Works:**
-- ✅ Click handler executes (`handleSelectPost` function)
-- ✅ API call made to `POST /api/posts/{id}/select`
+- ✅ Click handler executes (`handleSelectGroup` function)
+- ✅ API call made to `POST /api/groups/{id}/select/`
 - ✅ Backend marks post as "selected" (is_selected = true)
 - ✅ Console log: "Selected post: [post object]"
 
@@ -930,6 +1127,19 @@ Users can browse and explore AI-curated posts from X (Twitter):
 - Backend API for article generation exists and works (`POST /api/articles`)
 - ArticleEditor component exists but not integrated into any route
 - Only missing piece is frontend routing and view creation
+
+---
+
+#### 1.5 Archive a Group
+**User Action:** Click "Archive" button on any group card
+
+**What Happens:**
+- Group marked as `archived = true`
+- Hidden from active views
+- Still exists for future topic matching (new posts can join)
+- Can be unarchived later via archived groups view
+
+**Important:** When new posts match an archived group, the group stays archived and the post is added silently. The user's archive decision is respected.
 
 ---
 
@@ -1007,10 +1217,17 @@ From a user perspective, the following experiences are not available:
 
 ### Missing User Flows:
 
+❌ **Cooking Workflow UI**
+- Cannot access cooking view from group selection
+- Cannot run research on groups
+- Cannot view/edit research output
+- Cannot generate articles with style selection
+- Cannot refine generated articles
+
 ❌ **Article Creation Workflow**
-- Cannot navigate from post selection to article view
-- Cannot see generated articles
-- Cannot edit articles in UI
+- Backend fully implemented for research and article generation
+- UI components not built
+- No navigation from group selection to cooking view
 
 ❌ **Article Management**
 - Cannot view list of created articles
@@ -1110,6 +1327,18 @@ From a user perspective, the following experiences are not available:
 - Trigger manual archival immediately
 - Operation feedback banner (success/error/info messages)
 - All settings save automatically
+
+**Settings - System Logs:**
+- View all system logs with 7-day retention
+- Filter logs by level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+- Filter logs by category (API, Scheduler, External API, Database)
+- Adjust time window (1 hour to 7 days)
+- See error count badge in section header
+- View full log details with stack traces in modal
+- Color-coded level badges for quick identification
+- Error rows highlighted in red
+- Manual log cleanup (7-90 days configurable)
+- Automatic daily cleanup at 4 AM
 
 **Architecture Visualization:**
 - Visual flow diagram of system architecture
@@ -1451,7 +1680,7 @@ From a user perspective, the following experiences are not available:
   - Clear, concise headlines (max 100 chars)
   - Replace original tweet text with readable title
   - Displayed as H3 in post cards
-- **Model:** GPT-4-turbo (configurable in Settings)
+- **Model:** GPT-5.1 (configurable in Settings)
 - **Fallback:** Shows "Untitled" if generation fails
 - **Purpose:** Make posts scannable and professional
 
@@ -1467,7 +1696,7 @@ From a user perspective, the following experiences are not available:
 
 **Categories (Post Cards & Filtering):**
 - **Source:** AI-generated via `categorize_post` prompt
-- **Options:** Technology, Politics, Business, Science, Health, Other
+- **Options:** Major News, Automation, Coding, Content Creation, Other
 - **Assignment:** AI analyzes post content and assigns single category
 - **Display:** Badge/label in post card metadata section
 - **Fallback:** Shows "Uncategorized" if categorization fails
@@ -1479,7 +1708,7 @@ From a user perspective, the following experiences are not available:
 - **Scale:** 0.0 to 1.0 (higher = better quality/relevance)
 - **Display:** "Score: 0.XX" in post card metadata section (two decimal places)
 - **Threshold:** Default 0.6 for Recommended view (configurable in Settings)
-- **Model:** GPT-4-turbo (configurable in Settings)
+- **Model:** GPT-5-mini (cost-effective for scoring, configurable in Settings)
 - **Fallback:** Algorithmic scoring (relevance 40%, quality 40%, recency 20%) if AI fails
 - **Purpose:** Filter high-quality content for Recommended view
 - **Configuration:** Editable prompt and threshold via Settings → Content tile → Worthiness section
@@ -1488,7 +1717,7 @@ From a user perspective, the following experiences are not available:
 - **Source:** AI-generated via `detect_duplicate` prompt
 - **Method:** AI semantic title comparison
   1. Filter candidates: same category, last 7 days, limit 50
-  2. Compare AI-generated titles using GPT-4o-mini
+  2. Compare AI-generated titles using GPT-5-mini
   3. If similarity score >= threshold → group together
 - **Result:** Posts assigned same `group_id` if duplicates
 - **Display Impact:** Only first post per `group_id` shown in UI (others collapsed)
@@ -1503,7 +1732,7 @@ From a user perspective, the following experiences are not available:
   - Contextual background and analysis
   - Objective reporting tone
   - Markdown formatted
-- **Model:** GPT-4-turbo (configurable in Settings)
+- **Model:** GPT-5.1 (quality model for article generation, configurable in Settings)
 - **Improvement Suggestions:** Generated via `suggest_improvements` prompt
 - **Status:** Backend fully functional, UI not implemented
 - **Purpose:** Transform social posts into professional articles for Teams publishing
@@ -1527,7 +1756,18 @@ From a user perspective, the following experiences are not available:
 **Working Endpoints (When Called from UI or Direct API):**
 - `GET /api/posts` - All posts
 - `GET /api/posts/recommended` - Recommended posts
-- `POST /api/posts/{id}/select` - Mark post as selected
+- `POST /api/groups/{id}/select/` - Select group for article generation
+- `POST /api/groups/{id}/archive/` - Archive a group
+- `POST /api/groups/{id}/unarchive/` - Unarchive a group
+- `GET /api/groups/archived/` - List archived groups
+- `POST /api/groups/{id}/research/` - Run research (mode: quick/agentic/deep)
+- `GET /api/groups/{id}/research/` - Get research output
+- `PUT /api/groups/{id}/research/` - Save edited research
+- `POST /api/groups/{id}/article/` - Generate article (style + optional custom prompt + optional research_id)
+- `GET /api/groups/{id}/article/` - Get current article
+- `PUT /api/groups/{id}/article/refine/` - Refine article with instruction
+- `GET /api/settings/article-prompts/` - Get all four style prompts
+- `PUT /api/settings/article-prompts/` - Update style prompts
 - `POST /api/articles` - Generate article
 - `PUT /api/articles/{id}` - Update article
 - `POST /api/articles/{id}/regenerate` - Regenerate article
@@ -1735,4 +1975,4 @@ To achieve full user journey, the following UI work is needed:
 - 📊 Frontend: 70% complete (article UI is the primary remaining gap)
 - 🎨 Visual design: Fully implemented and documented
 - 🧭 Navigation: Partially complete (settings area done, article views missing)
-- 📝 Last Updated: 2026-01-25 - Comprehensive UI/UX audit and documentation update
+- 📝 Last Updated: 2026-01-26 - Updated OpenAI models to GPT-5 series (gpt-5.1, gpt-5-mini, gpt-5.2)

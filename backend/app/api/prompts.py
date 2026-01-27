@@ -86,38 +86,38 @@ async def reset_prompt(prompt_key: str, db: Session = Depends(get_db)):
     """Reset prompt to default (V-4)"""
     defaults = {
         "categorize_post": {
-            "prompt_text": "Analyze this X/Twitter post and assign it to ONE category: Technology, Politics, Business, Science, Health, or Other. Return ONLY the category name.",
-            "model": "gpt-4-turbo",
+            "prompt_text": "You are categorizing social media posts about AI. Read the post carefully and assign it to exactly ONE category based on the primary topic. Consider the main subject matter, not peripheral mentions.\n\nCategorize into one of the following categories:\n{{CATEGORIES}}\n\nReturn ONLY the category name, nothing else.",
+            "model": "gpt-5-mini",  # Cost-effective for simple classification
             "temperature": 0.3,
             "max_tokens": 50
         },
         "generate_title": {
             "prompt_text": "Generate a concise, engaging title (max 80 chars) for this X/Twitter thread. Focus on the main insight or takeaway.",
-            "model": "gpt-4-turbo",
+            "model": "gpt-5.1",  # Quality model for titles
             "temperature": 0.7,
             "max_tokens": 100
         },
         "generate_article": {
             "prompt_text": "Transform this X/Twitter thread into a professional blog article. Preserve key insights, add context where needed, maintain the author's voice.",
-            "model": "gpt-4-turbo",
+            "model": "gpt-5.1",  # Quality model for article generation
             "temperature": 0.7,
             "max_tokens": 1500
         },
         "score_worthiness": {
             "prompt_text": "Rate this post's worthiness for article generation (0.0-1.0). Consider: insight quality, topic relevance, completeness, engagement potential. Return ONLY a number between 0.0 and 1.0.",
-            "model": "gpt-4-turbo",
+            "model": "gpt-5-mini",  # Cost-effective for scoring
             "temperature": 0.3,
             "max_tokens": 50
         },
         "detect_duplicate": {
             "prompt_text": "Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.",
-            "model": "gpt-4o-mini",
+            "model": "gpt-5-mini",  # Cost-effective for similarity check
             "temperature": 0.0,
             "max_tokens": 10
         },
         "suggest_improvements": {
             "prompt_text": "Suggest 3 specific improvements for this draft article. Focus on clarity, structure, and reader value.",
-            "model": "gpt-4-turbo",
+            "model": "gpt-5.2",  # Flagship model for quality suggestions
             "temperature": 0.7,
             "max_tokens": 500
         }
@@ -179,7 +179,7 @@ async def import_prompts(import_data: dict, db: Session = Depends(get_db)):
 
         if existing:
             existing.prompt_text = prompt_data["prompt_text"]
-            existing.model = prompt_data.get("model", "gpt-4-turbo")
+            existing.model = prompt_data.get("model", "gpt-5.1")
             existing.temperature = prompt_data.get("temperature", 0.7)
             existing.max_tokens = prompt_data.get("max_tokens", 500)
             existing.description = prompt_data.get("description")
@@ -188,7 +188,7 @@ async def import_prompts(import_data: dict, db: Session = Depends(get_db)):
             new_prompt = Prompt(
                 prompt_key=prompt_data["prompt_key"],
                 prompt_text=prompt_data["prompt_text"],
-                model=prompt_data.get("model", "gpt-4-turbo"),
+                model=prompt_data.get("model", "gpt-5.1"),
                 temperature=prompt_data.get("temperature", 0.7),
                 max_tokens=prompt_data.get("max_tokens", 500),
                 description=prompt_data.get("description")

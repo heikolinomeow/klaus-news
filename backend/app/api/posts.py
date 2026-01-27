@@ -33,10 +33,13 @@ async def get_all_posts(db: Session = Depends(get_db)):
     - Selection status
     """
     from sqlalchemy import select
+    from app.models.group import Group
 
+    # V-3: Posts inherit visibility from their group - JOIN to filter by Group.archived
     posts = db.execute(
         select(Post)
-        .where(Post.archived == False)
+        .join(Group, Post.group_id == Group.id)
+        .where(Group.archived == False)
         .order_by(Post.ingested_at.desc())
     ).scalars().all()
 
@@ -51,9 +54,7 @@ async def get_all_posts(db: Session = Depends(get_db)):
         "category": p.category,
         "categorization_score": p.categorization_score,
         "worthiness_score": p.worthiness_score,
-        "group_id": p.group_id,
-        "archived": p.archived,
-        "selected": p.selected
+        "group_id": p.group_id
     } for p in posts]}
 
 
@@ -92,11 +93,15 @@ async def get_recommended_posts(db: Session = Depends(get_db)):
     settings_svc = SettingsService(db)
     worthiness_threshold = settings_svc.get('worthiness_threshold', 0.6)
 
+    from app.models.group import Group
+
+    # V-3: Posts inherit visibility from their group - JOIN to filter by Group.archived/selected
     posts = db.execute(
         select(Post)
+        .join(Group, Post.group_id == Group.id)
         .where(Post.worthiness_score > worthiness_threshold)
-        .where(Post.archived == False)
-        .where(Post.selected == False)
+        .where(Group.archived == False)
+        .where(Group.selected == False)
         .order_by(Post.category, Post.worthiness_score.desc())
     ).scalars().all()
 
@@ -117,9 +122,7 @@ async def get_recommended_posts(db: Session = Depends(get_db)):
             "category": post.category,
             "categorization_score": post.categorization_score,
             "worthiness_score": post.worthiness_score,
-            "group_id": post.group_id,
-            "archived": post.archived,
-            "selected": post.selected
+            "group_id": post.group_id
         })
 
     return grouped
@@ -150,40 +153,3 @@ async def get_post(
     return {"post": None}
 
 
-@router.post("/{post_id}/select")
-async def select_post(
-    post_id: int = Path(..., description="Database ID of the post to mark as selected"),
-    db: Session = Depends(get_db)
-):
-    """
-    Mark a post as selected for article generation (Frontend → Backend)
-
-    When a user chooses a post to turn into an article, this endpoint marks it
-    as "selected" in the database. This prevents the post from appearing in
-    future recommendations until the article is published.
-
-    **Use this when:**
-    - User clicks "Generate Article" on a post
-    - User manually marks a post for later processing
-
-    **What happens:**
-    - Sets `selected=true` in database
-    - Post removed from `/recommended` endpoint results
-    - Post is now ready for article generation via `/api/articles/`
-
-    **Parameters:**
-    - `post_id`: Database ID (integer), NOT the Twitter post ID (string)
-
-    **Workflow:**
-    1. User views recommended posts → `GET /api/posts/recommended`
-    2. User picks a post → `POST /api/posts/{id}/select`
-    3. Generate article from selected post → `POST /api/articles/` with `post_id`
-    """
-    from sqlalchemy import select, update
-
-    db.execute(
-        update(Post).where(Post.id == post_id).values(selected=True)
-    )
-    db.commit()
-
-    return {"message": "Post selected"}

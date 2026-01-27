@@ -14,7 +14,6 @@ interface Settings {
   posts_per_fetch: number;
   worthiness_threshold: number;
   duplicate_threshold: number;
-  enabled_categories: string[];
   scheduler_paused: boolean;
 }
 
@@ -35,7 +34,6 @@ const defaultSettings: Settings = {
   posts_per_fetch: 5,
   worthiness_threshold: 0.6,
   duplicate_threshold: 0.85,
-  enabled_categories: ['Technology', 'Politics', 'Business', 'Science', 'Health', 'Other'],
   scheduler_paused: false
 };
 

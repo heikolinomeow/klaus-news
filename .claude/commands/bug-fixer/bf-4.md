@@ -45,6 +45,7 @@ Do NOT write any other files.
 - INSERT BEFORE
 - INSERT AFTER
 - DELETE
+- DELETE FILE (delete entire file from disk)
 - CREATE FILE  (only way file creation is allowed)
 
 ### CREATE FILE (required fields in OP block)
@@ -54,6 +55,7 @@ Do NOT write any other files.
 Notes:
 - CREATE FILE does NOT use anchors.
 - CREATE FILE must specify the entire final file contents exactly.
+- DELETE FILE requires only the file path.
 
 ---
 
@@ -94,6 +96,9 @@ Treat an OP as already applied only if you can prove it:
 - CREATE FILE is idempotent if:
   - File exists AND
   - Full contents match specified contents byte-for-byte
+
+- DELETE FILE is idempotent if:
+  - File does not exist
 
 If you cannot prove “ready to apply” OR “already applied”, treat as ambiguous → not applied.
 
@@ -143,6 +148,7 @@ Only if preflight passes and OP is not idempotent:
 - REPLACE: replace exact old snippet with exact new snippet once.
 - INSERT: insert exact text immediately before/after anchor.
 - DELETE: remove exact snippet once.
+- DELETE FILE: delete the file from the filesystem.
 
 #### C) Verify (MUST)
 After apply (or for idempotent “already applied”):
