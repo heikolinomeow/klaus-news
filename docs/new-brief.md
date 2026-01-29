@@ -1,347 +1,508 @@
-# Product Brief: AI Research & Article Generation
+# BRIEF: Microsoft Teams Article Sharing
 
-**Feature Name:** AI Research & Article Generation
-**Priority:** High
-**Target Release:** v1.2
-**Status:** Proposal
-**Owner:** Product Team
-**Last Updated:** 2026-01-26
+**Version:** 1.0 (Draft)
+**Date:** 2026-01-26
+**Status:** Ready for Review
 
 ---
 
-## 1. Overview
+## Problem Statement
 
-### 1.1 Summary
-
-When users move a group from "New" to "Cooking", they need to generate articles based on the grouped posts. This feature introduces an optional two-step workflow: **Research (optional) → Generate Article**. Users can run AI-powered web research (with three depth levels), review/edit the research output alongside the posts, then generate an article. Alternatively, users can skip research and generate directly for quick drafts.
-
-### 1.2 Business Impact
-
-- Higher quality articles with verified facts and context
-- User control over AI research before committing to generation
-- Flexible cost/speed tradeoffs via tiered research modes
-- Transparency into what sources AI uses
+Users want to share articles from Klaus News to their Microsoft Teams channels. Currently there is no way to distribute curated content to team members who don't have direct access to the Klaus News app.
 
 ---
 
-## 2. Core Workflow
+## Goal
 
-### 2.1 State Flow
+Enable users to **send individual articles to Microsoft Teams channels** via Incoming Webhooks, with:
+1. **Channel selection** at send time (user chooses from pre-configured list)
+2. **Confirmation modal** before sending
+3. **Admin-configured channels** via environment variables
+
+---
+
+## User Flow
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│    NEW      │────▶│   COOKING   │────▶│   REVIEW    │────▶│  PUBLISHED  │
-│   Groups    │     │  Research   │     │   Article   │     │   Article   │
-└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
-```
-
-### 2.2 Cooking Options
-
-**Option A: With Research**
-1. Select research mode
-2. Run research
-3. Review & edit research output
-4. Generate article
-
-**Option B: Quick (No Research)**
-- Skip research and generate article directly
-
----
-
-## 3. Research Feature
-
-### 3.1 Research Modes
-
-Three research modes are available. Default is Agentic Research (best balance of quality/cost/speed).
-
-| Mode | Model | How It Works | Speed | Cost |
-|------|-------|--------------|-------|------|
-| **Quick Research** | `gpt-5-search-api` | Single search pass, returns basic facts | Fast (seconds) | $ |
-| **Agentic Research** | `o4-mini` + web_search | Model reasons, searches iteratively, decides when done | Medium (30s-2min) | $$ |
-| **Deep Research** | `o3-deep-research` | Exhaustive multi-source investigation, hundreds of sources | Slow (minutes) | $$$ |
-
-### 3.2 Run Research
-
-**Requirement:**
-Users can run AI research on a group before generating an article to see verified facts and context.
-
-**Acceptance Criteria:**
-- Research mode selector displays three options: Quick / Agentic / Deep
-- "Run Research" button triggers the selected mode
-- Loading state displays while research runs
-- Research output appears in right panel upon completion
-- User can re-run research with a different mode
-
-### 3.3 Review Research Side-by-Side
-
-**Requirement:**
-Users can view research output alongside the posts to compare sources with AI findings.
-
-**Acceptance Criteria:**
-- Split-panel view: Posts on left, Research on right
-- Research output shows four sections: Background, Key Facts, Related Context, Sources
-- Sources are clickable links
-- Clear visual hierarchy
-
-### 3.4 Edit Research Output
-
-**Requirement:**
-Users can edit the research output before generating an article to remove irrelevant information, add notes, or correct errors.
-
-**Acceptance Criteria:**
-- "Edit" button enables editing mode
-- User can modify any text in research output
-- User can add personal notes/instructions for article generation
-- "Reset to Original" option is available
-- Edits persist until article is generated
-
----
-
-## 4. Article Generation
-
-### 4.1 Article Styles
-
-Users select one of four predefined styles (or use a custom prompt). Each style has a different prompt template that is configurable in Settings.
-
-| Style | Description | Use Case |
-|-------|-------------|----------|
-| **News Brief** | Short, factual, 2-3 paragraphs | Quick updates, breaking news |
-| **Full Article** | Comprehensive coverage, multiple sections | In-depth reporting |
-| **Executive Summary** | Business-focused, key takeaways | Leadership briefings |
-| **Analysis** | Opinion/commentary, explores implications | Thought leadership |
-
-**Custom Prompt:** User can write their own prompt instead of using a preset.
-
-### 4.2 Settings Integration
-
-- All four style prompts are editable in Settings
-- Admins can customize prompts to match company voice/format
-- Changes apply to all future article generations
-
-### 4.3 Generate Article
-
-**Requirement:**
-Users can generate an article using posts and optional research. Article generation is always available (research is optional). Users get a well-informed article when research exists, or a quick draft without research.
-
-**Acceptance Criteria:**
-- "Generate Article" button is always enabled (research is optional)
-- User selects article style: News Brief / Full Article / Executive Summary / Analysis / Custom
-- If custom style selected: user enters their own prompt
-- If research exists: article generation uses posts + edited research as context
-- If no research: article generation uses posts only (simpler output)
-- Article output is plain text with paragraphs (formatted for Teams)
-- Article is saved to database
-- Article appears for review/refinement
-
----
-
-## 5. Article Refinement
-
-### 5.1 Conversational Refinement
-
-**Requirement:**
-Users can refine the generated article by giving instructions to adjust tone, add details, or fix issues without regenerating from scratch.
-
-**Acceptance Criteria:**
-- After article is generated, user sees article + input field for refinement
-- User types instruction (e.g., "Make it shorter", "Add more context about the CEO", "Make the tone more formal")
-- System uses: current article + research + posts + user instruction to generate refined version
-- Refined article replaces previous version (no multiple drafts)
-- Refinement history is NOT stored (only latest article version)
-- User can refine multiple times until satisfied
-
-**Example Refinement Flow:**
-```
-User: "Make the opening paragraph more attention-grabbing"
-→ AI regenerates with instruction, using full context
-→ New article replaces old
-→ User can refine again or finalize
+┌─────────────────────────────────────────────────────────────┐
+│  STEP 1: User views article                                 │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ OpenAI Announces GPT-5 with Revolutionary           │   │
+│  │ Reasoning Capabilities                              │   │
+│  │                                                     │   │
+│  │ The latest model demonstrates unprecedented...      │   │
+│  │                                                     │   │
+│  │ [📖 Read Article]  [📤 Send to Teams]              │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│                         │                                   │
+│                         ▼ clicks                            │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  STEP 2: Select channel (confirmation modal)                │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌───────────────────────────────────────┐                 │
+│  │  Send to Microsoft Teams              │                 │
+│  │  ─────────────────────────────────    │                 │
+│  │                                       │                 │
+│  │  Select channel:                      │                 │
+│  │  ┌─────────────────────────────────┐  │                 │
+│  │  │ ○ #general-news                 │  │                 │
+│  │  │ ● #tech-updates                 │  │                 │
+│  │  │ ○ #finance-team                 │  │                 │
+│  │  └─────────────────────────────────┘  │                 │
+│  │                                       │                 │
+│  │  Article: "OpenAI Announces GPT-5..." │                 │
+│  │                                       │                 │
+│  │        [Cancel]  [Send to Teams]      │                 │
+│  └───────────────────────────────────────┘                 │
+│                                                             │
+│                         │                                   │
+│                         ▼ confirms                          │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│  STEP 3: Success/Error feedback                             │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Success:                                                   │
+│  ┌───────────────────────────────────────┐                 │
+│  │  ✓ Article sent to #tech-updates      │                 │
+│  └───────────────────────────────────────┘                 │
+│                                                             │
+│  Error:                                                     │
+│  ┌───────────────────────────────────────┐                 │
+│  │  ✗ Failed to send. Please try again.  │                 │
+│  └───────────────────────────────────────┘                 │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 6. User Interface
+## UI/UX Design
 
-### 6.1 Cooking View Layout
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  COOKING                                                     [Settings] │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─ POSTS ──────────────────────┬─ RESEARCH OUTPUT ────────────────────┐│
-│  │                              │                                      ││
-│  │ ┌──────────────────────────┐ │ ┌──────────────────────────────────┐ ││
-│  │ │ @user1: Breaking news... │ │ │ ## Background                    │ ││
-│  │ │ Score: 0.87              │ │ │ Company X announced today...     │ ││
-│  │ └──────────────────────────┘ │ │                                  │ ││
-│  │ ┌──────────────────────────┐ │ │ ## Key Facts Verified            │ ││
-│  │ │ @user2: This confirms... │ │ │ • Revenue up 20% YoY [1]         │ ││
-│  │ │ Score: 0.82              │ │ │ • CEO statement from Jan 15 [2]  │ ││
-│  │ └──────────────────────────┘ │ │ • Competitor Y also moving [3]   │ ││
-│  │ ┌──────────────────────────┐ │ │                                  │ ││
-│  │ │ @user3: Just announced...│ │ │ ## Related Context               │ ││
-│  │ │ Score: 0.79              │ │ │ Industry trend toward...         │ ││
-│  │ └──────────────────────────┘ │ │                                  │ ││
-│  │                              │ │ ## Sources                       │ ││
-│  │                              │ │ [1] reuters.com/...              │ ││
-│  │                              │ │ [2] techcrunch.com/...           │ ││
-│  │                              │ │ [3] ft.com/...                   │ ││
-│  │                              │ └──────────────────────────────────┘ ││
-│  │                              │                             [Edit]   ││
-│  └──────────────────────────────┴──────────────────────────────────────┘│
-│                                                                         │
-│  [Research: Agentic ▼]  [Run Research]   [Style: News Brief ▼]  [Generate] │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### 6.2 Article View Layout
+### Article Card - Send Button
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  ARTICLE                                                     [Settings] │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─ GENERATED ARTICLE ─────────────────────────────────────────────────┐│
-│  │                                                                     ││
-│  │  EU Passes Landmark AI Regulation Bill                              ││
-│  │                                                                     ││
-│  │  The European Union has passed a comprehensive artificial           ││
-│  │  intelligence regulation bill, marking a significant milestone      ││
-│  │  in global tech governance.                                         ││
-│  │                                                                     ││
-│  │  The legislation, approved by a vote of 523-45, establishes         ││
-│  │  strict guidelines for AI development and deployment...             ││
-│  │                                                                     ││
-│  └─────────────────────────────────────────────────────────────────────┘│
-│                                                                         │
-│  ┌─ REFINE ARTICLE ────────────────────────────────────────────────────┐│
-│  │  Type instructions to refine the article...                         ││
-│  │  e.g., "Make it shorter" or "Add more context about enforcement"    ││
-│  └─────────────────────────────────────────────────────────────────────┘│
-│                                                           [Refine]      │
-│                                                                         │
-│  [← Back to Research]    [Copy to Clipboard]    [Mark as Published]    │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  TECHNOLOGY  •  5 min read                                  │
+│                                                             │
+│  OpenAI Announces GPT-5 with Revolutionary                  │
+│  Reasoning Capabilities                                     │
+│                                                             │
+│  The latest model demonstrates unprecedented ability to     │
+│  solve complex multi-step problems...                       │
+│                                                             │
+│  Source: TechCrunch  •  Jan 26, 2026                       │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────────────┐                │
+│  │  📖 Read     │  │  📤 Send to Teams    │                │
+│  └──────────────┘  └──────────────────────┘                │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### 6.3 Cooking View States
+**Button behavior:**
+- If no channels configured → Button disabled with tooltip "No Teams channels configured"
+- If channels configured → Opens confirmation modal
 
-| State | Posts Panel | Research Panel | Actions |
-|-------|-------------|----------------|---------|
-| **Initial** | Shows posts | Empty placeholder | [Run Research] [Generate] both enabled |
-| **Researching** | Shows posts | Loading spinner | [Generate] enabled, [Run Research] disabled |
-| **Research Complete** | Shows posts | Research output | [Edit] [Re-run] [Generate] |
-| **Editing Research** | Shows posts | Editable text | [Save] [Cancel] [Reset] |
+### Confirmation Modal
 
-### 6.4 Article View States
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Send to Microsoft Teams                              [X]   │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Select a channel:                                          │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  ○  #general-news                                   │   │
+│  │  ●  #tech-updates                                   │   │
+│  │  ○  #finance-team                                   │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─ Article Preview ───────────────────────────────────┐   │
+│  │                                                     │   │
+│  │  OpenAI Announces GPT-5 with Revolutionary          │   │
+│  │  Reasoning Capabilities                             │   │
+│  │                                                     │   │
+│  │  The latest model demonstrates unprecedented        │   │
+│  │  ability to solve complex multi-step problems...    │   │
+│  │                                                     │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│                      [Cancel]    [Send to Teams]            │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
 
-| State | Article Panel | Refine Panel | Actions |
-|-------|---------------|--------------|---------|
-| **Generating** | Loading spinner | Disabled | All buttons disabled |
-| **Generated** | Shows article | Input enabled | [Refine] [Copy] [Back] [Publish] |
-| **Refining** | Shows article (dimmed) | Loading | Buttons disabled |
+### Settings Page - Teams Integration Section
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Settings > Integrations > Microsoft Teams              ▼   │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Microsoft Teams Integration                                │
+│                                                             │
+│  ┌─ Configured Channels ───────────────────────────────┐   │
+│  │                                                     │   │
+│  │  Channel              Status                        │   │
+│  │  ─────────────────────────────────────────────────  │   │
+│  │  #general-news        ✓ Connected                   │   │
+│  │  #tech-updates        ✓ Connected                   │   │
+│  │  #finance-team        ✓ Connected                   │   │
+│  │                                                     │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  [Test All Connections]                                     │
+│                                                             │
+│  ℹ️  Channels are configured via environment variables.     │
+│     Contact your administrator to add or remove channels.  │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**No channels configured state:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Settings > Integrations > Microsoft Teams              ▼   │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  Microsoft Teams Integration                                │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │                                                     │   │
+│  │  ⚠️  No channels configured                         │   │
+│  │                                                     │   │
+│  │  To enable Teams integration, add webhook URLs      │   │
+│  │  to your environment configuration.                 │   │
+│  │                                                     │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 7. Technical Specification
+## Teams Card Format
 
-### 7.1 OpenAI API Integration
+What users see in Microsoft Teams when an article is sent:
 
-**Quick Research:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  🤖 Klaus News                                      │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  TECHNOLOGY                                                 │
+│                                                             │
+│  OpenAI Announces GPT-5 with Revolutionary                  │
+│  Reasoning Capabilities                                     │
+│  ─────────────────────────────────────────────────────────  │
+│                                                             │
+│  The latest model demonstrates unprecedented ability to     │
+│  solve complex multi-step problems, marking a significant   │
+│  leap in artificial intelligence development.               │
+│                                                             │
+│  ┌──────────────────┐                                      │
+│  │  📖 Read Article │                                      │
+│  └──────────────────┘                                      │
+│                                                             │
+│  Source: TechCrunch  •  Jan 26, 2026                       │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Data Model
+
+### Environment Configuration
+
+```bash
+# .env file
+
+TEAMS_CHANNELS='[
+  {"name": "general-news", "webhookUrl": "https://outlook.office.com/webhook/..."},
+  {"name": "tech-updates", "webhookUrl": "https://outlook.office.com/webhook/..."},
+  {"name": "finance-team", "webhookUrl": "https://outlook.office.com/webhook/..."}
+]'
+```
+
+**Format:** JSON array of channel objects
+- `name`: Display name shown in UI (required, string)
+- `webhookUrl`: Microsoft Teams Incoming Webhook URL (required, string)
+
+### Article Data Used
+
+Fields from existing article model that will be sent to Teams:
+
+| Field | Usage in Teams Card |
+|-------|---------------------|
+| `title` | Card title (bold) |
+| `summary` | Card body text |
+| `category` | Badge/label above title |
+| `source` | Footer attribution |
+| `published_at` | Footer date |
+| `url` | "Read Article" button target |
+
+---
+
+## API Structure
+
+### Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/teams/channels` | GET | List configured channels (names only, no webhook URLs) |
+| `/api/teams/send` | POST | Send article to specified channel |
+
+### GET /api/teams/channels
+
+**Response:**
+```json
+{
+  "channels": [
+    {"name": "general-news"},
+    {"name": "tech-updates"},
+    {"name": "finance-team"}
+  ]
+}
+```
+
+**Notes:**
+- Returns only channel names (webhook URLs are never exposed to frontend)
+- Returns empty array if no channels configured
+
+### POST /api/teams/send
+
+**Request:**
+```json
+{
+  "articleId": "uuid-of-article",
+  "channelName": "tech-updates"
+}
+```
+
+**Response (success):**
+```json
+{
+  "success": true,
+  "message": "Article sent to #tech-updates"
+}
+```
+
+**Response (error):**
+```json
+{
+  "success": false,
+  "error": "Channel not found" | "Failed to send to Teams" | "Article not found"
+}
+```
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│   FRONTEND                           BACKEND                │
+│                                                             │
+│   ┌───────────────┐                 ┌───────────────┐      │
+│   │ Article Card  │                 │ GET /api/     │      │
+│   │ [Send Button] │─────────────────│ teams/channels│      │
+│   └───────────────┘                 └───────────────┘      │
+│          │                                 │               │
+│          │                                 │               │
+│          ▼                                 ▼               │
+│   ┌───────────────┐                 ┌───────────────┐      │
+│   │ Channel Modal │◄── channel list─│ Read from     │      │
+│   │               │                 │ TEAMS_CHANNELS│      │
+│   └───────┬───────┘                 │ env var       │      │
+│           │                         └───────────────┘      │
+│           │                                                │
+│           │ POST {articleId,        ┌───────────────┐      │
+│           │       channelName}      │ POST /api/    │      │
+│           └────────────────────────►│ teams/send    │      │
+│                                     └───────┬───────┘      │
+│                                             │               │
+│                                             │ Build         │
+│                                             │ Adaptive Card │
+│                                             ▼               │
+│                                     ┌───────────────┐      │
+│                                     │ HTTP POST to  │      │
+│                                     │ Teams Webhook │      │
+│                                     └───────────────┘      │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Backend Implementation
+
+### New Module: `backend/app/services/teams_service.py`
+
 ```python
-response = client.responses.create(
-    model="gpt-5-search-api",
-    tools=[{"type": "web_search"}],
-    input=research_prompt
-)
+def get_channels() -> list[dict]:
+    """
+    Get configured Teams channels from environment.
+    Returns list of {name: str} (no webhook URLs exposed).
+    """
+
+def send_to_teams(article_id: str, channel_name: str) -> dict:
+    """
+    Send article to specified Teams channel.
+    Returns {success: bool, message: str} or {success: bool, error: str}
+    """
+
+def build_adaptive_card(article: Article) -> dict:
+    """
+    Build Microsoft Adaptive Card JSON from article data.
+    """
 ```
 
-**Agentic Research:**
-```python
-response = client.responses.create(
-    model="o4-mini",
-    tools=[{"type": "web_search"}],
-    input=research_prompt
-)
-```
+### New Router: `backend/app/api/teams.py`
 
-**Deep Research:**
-```python
-response = client.responses.create(
-    model="o3-deep-research",
-    input=research_prompt
-)
-```
+- `GET /api/teams/channels` → calls `get_channels()`
+- `POST /api/teams/send` → calls `send_to_teams()`
 
-### 7.2 Database Schema
+### Adaptive Card Payload
 
-```sql
--- Research storage
-CREATE TABLE group_research (
-    id SERIAL PRIMARY KEY,
-    group_id INTEGER REFERENCES groups(id) NOT NULL,
-    research_mode VARCHAR NOT NULL,      -- 'quick', 'agentic', 'deep'
-    original_output TEXT NOT NULL,       -- AI-generated research
-    edited_output TEXT,                  -- User-edited version
-    sources JSONB,                       -- Source URLs with metadata
-    model_used VARCHAR NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- Article storage
-CREATE TABLE group_articles (
-    id SERIAL PRIMARY KEY,
-    group_id INTEGER REFERENCES groups(id) NOT NULL,
-    research_id INTEGER REFERENCES group_research(id),  -- NULL if generated without research
-    style VARCHAR NOT NULL,              -- 'news_brief', 'full_article', 'executive_summary', 'analysis', 'custom'
-    prompt_used TEXT NOT NULL,           -- The actual prompt used (for custom or resolved preset)
-    content TEXT NOT NULL,               -- The generated article (plain text)
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()   -- Updated on each refinement
-);
-
--- Article style prompts in system_settings (from Settings feature)
--- Keys: 'article_prompt_news_brief', 'article_prompt_full_article',
---       'article_prompt_executive_summary', 'article_prompt_analysis'
-```
-
-### 7.3 API Endpoints
-
-```
-# Research
-POST   /api/groups/{id}/research/          # Run research
-GET    /api/groups/{id}/research/          # Get research
-PUT    /api/groups/{id}/research/          # Save edits
-
-# Article
-POST   /api/groups/{id}/article/           # Generate article (style + optional custom prompt)
-GET    /api/groups/{id}/article/           # Get current article
-PUT    /api/groups/{id}/article/refine/    # Refine article with instruction
-
-# Settings (existing, extended)
-GET    /api/settings/article-prompts/      # Get all four style prompts
-PUT    /api/settings/article-prompts/      # Update style prompts
+```json
+{
+  "type": "message",
+  "attachments": [
+    {
+      "contentType": "application/vnd.microsoft.card.adaptive",
+      "content": {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "body": [
+          {
+            "type": "TextBlock",
+            "text": "TECHNOLOGY",
+            "size": "small",
+            "color": "accent",
+            "weight": "bolder"
+          },
+          {
+            "type": "TextBlock",
+            "text": "OpenAI Announces GPT-5...",
+            "size": "large",
+            "weight": "bolder",
+            "wrap": true
+          },
+          {
+            "type": "TextBlock",
+            "text": "The latest model demonstrates...",
+            "wrap": true
+          },
+          {
+            "type": "TextBlock",
+            "text": "Source: TechCrunch • Jan 26, 2026",
+            "size": "small",
+            "isSubtle": true
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.OpenUrl",
+            "title": "Read Article",
+            "url": "https://techcrunch.com/..."
+          }
+        ]
+      }
+    }
+  ]
+}
 ```
 
 ---
 
-## 8. Design Decisions
+## Frontend Implementation
 
-| Question | Decision | Rationale |
-|----------|----------|-----------|
-| Auto-run research when entering Cooking? | **No** | User must explicitly trigger research to control costs |
-| Show cost estimate before Deep Research? | **No** | Keep UI simple, avoid friction |
-| Allow generation without research? | **Yes** | Flexibility - user can skip research for quick drafts |
-| Article output format? | **Plain text with paragraphs** | Will be published to Teams |
-| Article styles? | **Four presets + custom** | Configurable prompts in Settings |
-| Store research & articles? | **Yes** | Both saved to database |
-| Multiple article drafts? | **No** | Single version, refined in place |
-| How to refine articles? | **Conversational** | User types instruction, AI refines using full context |
+### New Components
+
+| Component | Purpose |
+|-----------|---------|
+| `TeamsChannelModal` | Confirmation modal with channel selection |
+| `TeamsSettingsSection` | Settings page integration status display |
+
+### Modified Components
+
+| Component | Change |
+|-----------|--------|
+| Article card/detail | Add "Send to Teams" button |
+| Settings page | Add Teams Integration section |
+
+### State Management
+
+- Fetch channels on app load (or lazily when modal opens)
+- Store in context/state for reuse
+- No caching needed (list is small and rarely changes)
 
 ---
 
-**End of Brief**
+## Error Handling
+
+| Scenario | User Feedback |
+|----------|---------------|
+| No channels configured | Button disabled, tooltip explains |
+| Network error on send | Toast: "Failed to send. Please try again." |
+| Webhook returns error | Toast: "Teams rejected the message. Contact admin." |
+| Article not found | Toast: "Article not found." (edge case) |
+| Channel not found | Toast: "Channel not found." (edge case) |
+
+---
+
+## Security Considerations
+
+| Concern | Mitigation |
+|---------|------------|
+| Webhook URLs are sensitive | Never expose to frontend; keep in env vars only |
+| Rate limiting | Microsoft Teams has rate limits (~4 msgs/sec); add delay if bulk sending in future |
+| Input validation | Validate articleId and channelName on backend |
+
+---
+
+## Validation Rules
+
+| Field | Rule |
+|-------|------|
+| `TEAMS_CHANNELS` env var | Valid JSON array, each item has `name` and `webhookUrl` |
+| `channelName` (request) | Must match a configured channel name |
+| `articleId` (request) | Must be valid UUID, article must exist |
+
+---
+
+## Out of Scope (Future Enhancements)
+
+- Images in Teams cards (requires public URL hosting)
+- Bulk send (multiple articles at once)
+- Scheduled/automated sends
+- User-configured channels (self-service webhook setup)
+- Send history/audit log
+- Channel-specific card customization
+- Digest format (multiple articles in one card)
+
+---
+
+## Summary
+
+This feature enables users to share individual articles to Microsoft Teams channels:
+
+1. **Admin configures** webhook URLs in environment variables
+2. **User clicks** "Send to Teams" button on article
+3. **User selects** target channel from modal
+4. **User confirms** and article is sent as Adaptive Card
+5. **Team members** see rich card in Teams with "Read Article" button
+
+Simple, secure, and extensible for future enhancements.

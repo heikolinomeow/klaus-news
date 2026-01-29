@@ -1,347 +1,369 @@
-# Product Brief: AI Research & Article Generation
+# BRIEF: Microsoft Teams Article Sharing
 
-**Feature Name:** AI Research & Article Generation
-**Priority:** High
-**Target Release:** v1.2
-**Status:** Proposal
-**Owner:** Product Team
-**Last Updated:** 2026-01-26
+**Version:** 1.0 (Draft)
+**Date:** 2026-01-26
+**Status:** Ready for Review
 
 ---
 
-## 1. Overview
+## 1. Problem Statement
 
-### 1.1 Summary
-
-When users move a group from "New" to "Cooking", they need to generate articles based on the grouped posts. This feature introduces an optional two-step workflow: **Research (optional) → Generate Article**. Users can run AI-powered web research (with three depth levels), review/edit the research output alongside the posts, then generate an article. Alternatively, users can skip research and generate directly for quick drafts.
-
-### 1.2 Business Impact
-
-- Higher quality articles with verified facts and context
-- User control over AI research before committing to generation
-- Flexible cost/speed tradeoffs via tiered research modes
-- Transparency into what sources AI uses
+Users want to share articles from Klaus News to their Microsoft Teams channels. Currently there is no way to distribute curated content to team members who don't have direct access to the Klaus News app.
 
 ---
 
-## 2. Core Workflow
+## 2. Goal
 
-### 2.1 State Flow
-
-```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│    NEW      │────▶│   COOKING   │────▶│   REVIEW    │────▶│  PUBLISHED  │
-│   Groups    │     │  Research   │     │   Article   │     │   Article   │
-└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
-```
-
-### 2.2 Cooking Options
-
-**Option A: With Research**
-1. Select research mode
-2. Run research
-3. Review & edit research output
-4. Generate article
-
-**Option B: Quick (No Research)**
-- Skip research and generate article directly
+Enable users to send individual articles to Microsoft Teams channels via Incoming Webhooks, with:
+1. Channel selection at send time (user chooses from pre-configured list)
+2. Confirmation modal before sending
+3. Admin-configured channels via environment variables
 
 ---
 
-## 3. Research Feature
+## 3. User Flow
 
-### 3.1 Research Modes
+### 3.1 Overview
 
-Three research modes are available. Default is Agentic Research (best balance of quality/cost/speed).
+| Step | Action |
+|------|--------|
+| 1 | User views article and clicks "Send to Teams" button |
+| 2 | User selects target channel from confirmation modal |
+| 3 | User receives success/error feedback |
 
-| Mode | Model | How It Works | Speed | Cost |
-|------|-------|--------------|-------|------|
-| **Quick Research** | `gpt-5-search-api` | Single search pass, returns basic facts | Fast (seconds) | $ |
-| **Agentic Research** | `o4-mini` + web_search | Model reasons, searches iteratively, decides when done | Medium (30s-2min) | $$ |
-| **Deep Research** | `o3-deep-research` | Exhaustive multi-source investigation, hundreds of sources | Slow (minutes) | $$$ |
+### 3.2 Step 1: Article View
 
-### 3.2 Run Research
+User sees article card with "Read Article" and "Send to Teams" buttons.
+
+### 3.3 Step 2: Channel Selection Modal
+
+- Modal title: "Send to Microsoft Teams"
+- Channel list displayed as radio buttons
+- Article preview shows title and summary excerpt
+- Actions: Cancel and "Send to Teams" buttons
+
+### 3.4 Step 3: Feedback
+
+**Success:** `✓ Article sent to #channel-name`
+
+**Error:** `✗ Failed to send. Please try again.`
+
+---
+
+## 4. UI/UX Design
+
+### 4.1 Article Card - Send Button
 
 **Requirement:**
-Users can run AI research on a group before generating an article to see verified facts and context.
+Article cards display category, read time, title, summary, source, and date. Two action buttons appear at bottom: "Read" and "Send to Teams".
 
-**Acceptance Criteria:**
-- Research mode selector displays three options: Quick / Agentic / Deep
-- "Run Research" button triggers the selected mode
-- Loading state displays while research runs
-- Research output appears in right panel upon completion
-- User can re-run research with a different mode
+**Button Behavior:**
+- If no channels configured → Button disabled with tooltip "No Teams channels configured"
+- If channels configured → Opens confirmation modal
 
-### 3.3 Review Research Side-by-Side
+### 4.2 Confirmation Modal
 
 **Requirement:**
-Users can view research output alongside the posts to compare sources with AI findings.
+Modal presents channel selection and article preview before user confirms send action.
 
-**Acceptance Criteria:**
-- Split-panel view: Posts on left, Research on right
-- Research output shows four sections: Background, Key Facts, Related Context, Sources
-- Sources are clickable links
-- Clear visual hierarchy
+**Components:**
+- Header: "Send to Microsoft Teams" with close button
+- Channel selection: Radio button list of configured channels
+- Article preview: Title and summary excerpt
+- Actions: Cancel and "Send to Teams" buttons
 
-### 3.4 Edit Research Output
-
-**Requirement:**
-Users can edit the research output before generating an article to remove irrelevant information, add notes, or correct errors.
-
-**Acceptance Criteria:**
-- "Edit" button enables editing mode
-- User can modify any text in research output
-- User can add personal notes/instructions for article generation
-- "Reset to Original" option is available
-- Edits persist until article is generated
-
----
-
-## 4. Article Generation
-
-### 4.1 Article Styles
-
-Users select one of four predefined styles (or use a custom prompt). Each style has a different prompt template that is configurable in Settings.
-
-| Style | Description | Use Case |
-|-------|-------------|----------|
-| **News Brief** | Short, factual, 2-3 paragraphs | Quick updates, breaking news |
-| **Full Article** | Comprehensive coverage, multiple sections | In-depth reporting |
-| **Executive Summary** | Business-focused, key takeaways | Leadership briefings |
-| **Analysis** | Opinion/commentary, explores implications | Thought leadership |
-
-**Custom Prompt:** User can write their own prompt instead of using a preset.
-
-### 4.2 Settings Integration
-
-- All four style prompts are editable in Settings
-- Admins can customize prompts to match company voice/format
-- Changes apply to all future article generations
-
-### 4.3 Generate Article
+### 4.3 Settings Page - Teams Integration Section
 
 **Requirement:**
-Users can generate an article using posts and optional research. Article generation is always available (research is optional). Users get a well-informed article when research exists, or a quick draft without research.
+Settings page displays Teams integration status under path: Settings > Integrations > Microsoft Teams.
 
-**Acceptance Criteria:**
-- "Generate Article" button is always enabled (research is optional)
-- User selects article style: News Brief / Full Article / Executive Summary / Analysis / Custom
-- If custom style selected: user enters their own prompt
-- If research exists: article generation uses posts + edited research as context
-- If no research: article generation uses posts only (simpler output)
-- Article output is plain text with paragraphs (formatted for Teams)
-- Article is saved to database
-- Article appears for review/refinement
+**Configured State:**
+- Table showing channel names with status (✓ Connected)
+- "Test All Connections" button
+- Info text: "Channels are configured via environment variables. Contact your administrator to add or remove channels."
+
+**No Channels Configured State:**
+- Warning: "No channels configured"
+- Message: "To enable Teams integration, add webhook URLs to your environment configuration."
 
 ---
 
-## 5. Article Refinement
-
-### 5.1 Conversational Refinement
+## 5. Teams Card Format
 
 **Requirement:**
-Users can refine the generated article by giving instructions to adjust tone, add details, or fix issues without regenerating from scratch.
+When an article is sent, Teams displays a rich Adaptive Card.
 
-**Acceptance Criteria:**
-- After article is generated, user sees article + input field for refinement
-- User types instruction (e.g., "Make it shorter", "Add more context about the CEO", "Make the tone more formal")
-- System uses: current article + research + posts + user instruction to generate refined version
-- Refined article replaces previous version (no multiple drafts)
-- Refinement history is NOT stored (only latest article version)
-- User can refine multiple times until satisfied
+**Card Structure:**
+| Element | Content |
+|---------|---------|
+| Header | Klaus News branding |
+| Category | Label (e.g., TECHNOLOGY) |
+| Title | Article title (bold) |
+| Body | Summary text |
+| Action | "Read Article" button linking to article URL |
+| Footer | Source attribution and date |
 
-**Example Refinement Flow:**
+---
+
+## 6. Data Model
+
+### 6.1 Environment Configuration
+
+**Requirement:**
+Channels are configured via `TEAMS_CHANNELS` environment variable in `.env` file.
+
+**Format:** JSON array of channel objects.
+
+```bash
+TEAMS_CHANNELS='[
+  {"name": "general-news", "webhookUrl": "https://outlook.office.com/webhook/..."},
+  {"name": "tech-updates", "webhookUrl": "https://outlook.office.com/webhook/..."},
+  {"name": "finance-team", "webhookUrl": "https://outlook.office.com/webhook/..."}
+]'
 ```
-User: "Make the opening paragraph more attention-grabbing"
-→ AI regenerates with instruction, using full context
-→ New article replaces old
-→ User can refine again or finalize
+
+**Field Requirements:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Display name shown in UI |
+| `webhookUrl` | string | Yes | Microsoft Teams Incoming Webhook URL |
+
+### 6.2 Article Data Used
+
+**Requirement:**
+The following fields from the existing article model are sent to Teams:
+
+| Field | Usage in Teams Card |
+|-------|---------------------|
+| `title` | Card title (bold) |
+| `summary` | Card body text |
+| `category` | Badge/label above title |
+| `source` | Footer attribution |
+| `published_at` | Footer date |
+| `url` | "Read Article" button target |
+
+---
+
+## 7. API Structure
+
+### 7.1 Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/teams/channels` | GET | List configured channels (names only, no webhook URLs) |
+| `/api/teams/send` | POST | Send article to specified channel |
+
+### 7.2 GET /api/teams/channels
+
+**Response:**
+```json
+{
+  "channels": [
+    {"name": "general-news"},
+    {"name": "tech-updates"},
+    {"name": "finance-team"}
+  ]
+}
+```
+
+**Constraints:**
+- Returns only channel names (webhook URLs are never exposed to frontend)
+- Returns empty array if no channels configured
+
+### 7.3 POST /api/teams/send
+
+**Request:**
+```json
+{
+  "articleId": "uuid-of-article",
+  "channelName": "tech-updates"
+}
+```
+
+**Response (success):**
+```json
+{
+  "success": true,
+  "message": "Article sent to #tech-updates"
+}
+```
+
+**Response (error):**
+```json
+{
+  "success": false,
+  "error": "Channel not found" | "Failed to send to Teams" | "Article not found"
+}
 ```
 
 ---
 
-## 6. User Interface
+## 8. Architecture
 
-### 6.1 Cooking View Layout
+**Requirement:**
+System follows this flow:
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  COOKING                                                     [Settings] │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─ POSTS ──────────────────────┬─ RESEARCH OUTPUT ────────────────────┐│
-│  │                              │                                      ││
-│  │ ┌──────────────────────────┐ │ ┌──────────────────────────────────┐ ││
-│  │ │ @user1: Breaking news... │ │ │ ## Background                    │ ││
-│  │ │ Score: 0.87              │ │ │ Company X announced today...     │ ││
-│  │ └──────────────────────────┘ │ │                                  │ ││
-│  │ ┌──────────────────────────┐ │ │ ## Key Facts Verified            │ ││
-│  │ │ @user2: This confirms... │ │ │ • Revenue up 20% YoY [1]         │ ││
-│  │ │ Score: 0.82              │ │ │ • CEO statement from Jan 15 [2]  │ ││
-│  │ └──────────────────────────┘ │ │ • Competitor Y also moving [3]   │ ││
-│  │ ┌──────────────────────────┐ │ │                                  │ ││
-│  │ │ @user3: Just announced...│ │ │ ## Related Context               │ ││
-│  │ │ Score: 0.79              │ │ │ Industry trend toward...         │ ││
-│  │ └──────────────────────────┘ │ │                                  │ ││
-│  │                              │ │ ## Sources                       │ ││
-│  │                              │ │ [1] reuters.com/...              │ ││
-│  │                              │ │ [2] techcrunch.com/...           │ ││
-│  │                              │ │ [3] ft.com/...                   │ ││
-│  │                              │ └──────────────────────────────────┘ ││
-│  │                              │                             [Edit]   ││
-│  └──────────────────────────────┴──────────────────────────────────────┘│
-│                                                                         │
-│  [Research: Agentic ▼]  [Run Research]   [Style: News Brief ▼]  [Generate] │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### 6.2 Article View Layout
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  ARTICLE                                                     [Settings] │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─ GENERATED ARTICLE ─────────────────────────────────────────────────┐│
-│  │                                                                     ││
-│  │  EU Passes Landmark AI Regulation Bill                              ││
-│  │                                                                     ││
-│  │  The European Union has passed a comprehensive artificial           ││
-│  │  intelligence regulation bill, marking a significant milestone      ││
-│  │  in global tech governance.                                         ││
-│  │                                                                     ││
-│  │  The legislation, approved by a vote of 523-45, establishes         ││
-│  │  strict guidelines for AI development and deployment...             ││
-│  │                                                                     ││
-│  └─────────────────────────────────────────────────────────────────────┘│
-│                                                                         │
-│  ┌─ REFINE ARTICLE ────────────────────────────────────────────────────┐│
-│  │  Type instructions to refine the article...                         ││
-│  │  e.g., "Make it shorter" or "Add more context about enforcement"    ││
-│  └─────────────────────────────────────────────────────────────────────┘│
-│                                                           [Refine]      │
-│                                                                         │
-│  [← Back to Research]    [Copy to Clipboard]    [Mark as Published]    │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### 6.3 Cooking View States
-
-| State | Posts Panel | Research Panel | Actions |
-|-------|-------------|----------------|---------|
-| **Initial** | Shows posts | Empty placeholder | [Run Research] [Generate] both enabled |
-| **Researching** | Shows posts | Loading spinner | [Generate] enabled, [Run Research] disabled |
-| **Research Complete** | Shows posts | Research output | [Edit] [Re-run] [Generate] |
-| **Editing Research** | Shows posts | Editable text | [Save] [Cancel] [Reset] |
-
-### 6.4 Article View States
-
-| State | Article Panel | Refine Panel | Actions |
-|-------|---------------|--------------|---------|
-| **Generating** | Loading spinner | Disabled | All buttons disabled |
-| **Generated** | Shows article | Input enabled | [Refine] [Copy] [Back] [Publish] |
-| **Refining** | Shows article (dimmed) | Loading | Buttons disabled |
+1. Frontend Article Card [Send Button] → GET /api/teams/channels
+2. Channel Modal receives channel list (read from TEAMS_CHANNELS env var)
+3. Modal POST {articleId, channelName} → POST /api/teams/send
+4. Backend builds Adaptive Card and HTTP POST to Teams Webhook
 
 ---
 
-## 7. Technical Specification
+## 9. Backend Implementation
 
-### 7.1 OpenAI API Integration
+### 9.1 New Module: `backend/app/services/teams_service.py`
 
-**Quick Research:**
-```python
-response = client.responses.create(
-    model="gpt-5-search-api",
-    tools=[{"type": "web_search"}],
-    input=research_prompt
-)
-```
+**Functions:**
 
-**Agentic Research:**
-```python
-response = client.responses.create(
-    model="o4-mini",
-    tools=[{"type": "web_search"}],
-    input=research_prompt
-)
-```
+| Function | Purpose |
+|----------|---------|
+| `get_channels() -> list[dict]` | Get configured Teams channels from environment. Returns list of `{name: str}` (no webhook URLs exposed). |
+| `send_to_teams(article_id: str, channel_name: str) -> dict` | Send article to specified Teams channel. Returns `{success: bool, message: str}` or `{success: bool, error: str}`. |
+| `build_adaptive_card(article: Article) -> dict` | Build Microsoft Adaptive Card JSON from article data. |
 
-**Deep Research:**
-```python
-response = client.responses.create(
-    model="o3-deep-research",
-    input=research_prompt
-)
-```
+### 9.2 New Router: `backend/app/api/teams.py`
 
-### 7.2 Database Schema
+| Route | Handler |
+|-------|---------|
+| `GET /api/teams/channels` | calls `get_channels()` |
+| `POST /api/teams/send` | calls `send_to_teams()` |
 
-```sql
--- Research storage
-CREATE TABLE group_research (
-    id SERIAL PRIMARY KEY,
-    group_id INTEGER REFERENCES groups(id) NOT NULL,
-    research_mode VARCHAR NOT NULL,      -- 'quick', 'agentic', 'deep'
-    original_output TEXT NOT NULL,       -- AI-generated research
-    edited_output TEXT,                  -- User-edited version
-    sources JSONB,                       -- Source URLs with metadata
-    model_used VARCHAR NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
+### 9.3 Adaptive Card Payload
 
--- Article storage
-CREATE TABLE group_articles (
-    id SERIAL PRIMARY KEY,
-    group_id INTEGER REFERENCES groups(id) NOT NULL,
-    research_id INTEGER REFERENCES group_research(id),  -- NULL if generated without research
-    style VARCHAR NOT NULL,              -- 'news_brief', 'full_article', 'executive_summary', 'analysis', 'custom'
-    prompt_used TEXT NOT NULL,           -- The actual prompt used (for custom or resolved preset)
-    content TEXT NOT NULL,               -- The generated article (plain text)
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()   -- Updated on each refinement
-);
+**Requirement:**
+Adaptive Card follows Microsoft schema:
 
--- Article style prompts in system_settings (from Settings feature)
--- Keys: 'article_prompt_news_brief', 'article_prompt_full_article',
---       'article_prompt_executive_summary', 'article_prompt_analysis'
-```
-
-### 7.3 API Endpoints
-
-```
-# Research
-POST   /api/groups/{id}/research/          # Run research
-GET    /api/groups/{id}/research/          # Get research
-PUT    /api/groups/{id}/research/          # Save edits
-
-# Article
-POST   /api/groups/{id}/article/           # Generate article (style + optional custom prompt)
-GET    /api/groups/{id}/article/           # Get current article
-PUT    /api/groups/{id}/article/refine/    # Refine article with instruction
-
-# Settings (existing, extended)
-GET    /api/settings/article-prompts/      # Get all four style prompts
-PUT    /api/settings/article-prompts/      # Update style prompts
+```json
+{
+  "type": "message",
+  "attachments": [
+    {
+      "contentType": "application/vnd.microsoft.card.adaptive",
+      "content": {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "type": "AdaptiveCard",
+        "version": "1.4",
+        "body": [
+          {
+            "type": "TextBlock",
+            "text": "TECHNOLOGY",
+            "size": "small",
+            "color": "accent",
+            "weight": "bolder"
+          },
+          {
+            "type": "TextBlock",
+            "text": "OpenAI Announces GPT-5...",
+            "size": "large",
+            "weight": "bolder",
+            "wrap": true
+          },
+          {
+            "type": "TextBlock",
+            "text": "The latest model demonstrates...",
+            "wrap": true
+          },
+          {
+            "type": "TextBlock",
+            "text": "Source: TechCrunch • Jan 26, 2026",
+            "size": "small",
+            "isSubtle": true
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.OpenUrl",
+            "title": "Read Article",
+            "url": "https://techcrunch.com/..."
+          }
+        ]
+      }
+    }
+  ]
+}
 ```
 
 ---
 
-## 8. Design Decisions
+## 10. Frontend Implementation
 
-| Question | Decision | Rationale |
-|----------|----------|-----------|
-| Auto-run research when entering Cooking? | **No** | User must explicitly trigger research to control costs |
-| Show cost estimate before Deep Research? | **No** | Keep UI simple, avoid friction |
-| Allow generation without research? | **Yes** | Flexibility - user can skip research for quick drafts |
-| Article output format? | **Plain text with paragraphs** | Will be published to Teams |
-| Article styles? | **Four presets + custom** | Configurable prompts in Settings |
-| Store research & articles? | **Yes** | Both saved to database |
-| Multiple article drafts? | **No** | Single version, refined in place |
-| How to refine articles? | **Conversational** | User types instruction, AI refines using full context |
+### 10.1 New Components
+
+| Component | Purpose |
+|-----------|---------|
+| `TeamsChannelModal` | Confirmation modal with channel selection |
+| `TeamsSettingsSection` | Settings page integration status display |
+
+### 10.2 Modified Components
+
+| Component | Change |
+|-----------|--------|
+| Article card/detail | Add "Send to Teams" button |
+| Settings page | Add Teams Integration section |
+
+### 10.3 State Management
+
+**Requirements:**
+- Fetch channels on app load (or lazily when modal opens)
+- Store in context/state for reuse
+- No caching needed (list is small and rarely changes)
 
 ---
 
-**End of Brief**
+## 11. Error Handling
+
+| Scenario | User Feedback |
+|----------|---------------|
+| No channels configured | Button disabled, tooltip explains |
+| Network error on send | Toast: "Failed to send. Please try again." |
+| Webhook returns error | Toast: "Teams rejected the message. Contact admin." |
+| Article not found | Toast: "Article not found." (edge case) |
+| Channel not found | Toast: "Channel not found." (edge case) |
+
+---
+
+## 12. Security Considerations
+
+| Concern | Mitigation |
+|---------|------------|
+| Webhook URLs are sensitive | Never expose to frontend; keep in env vars only |
+| Rate limiting | Microsoft Teams has rate limits (~4 msgs/sec); add delay if bulk sending in future |
+| Input validation | Validate articleId and channelName on backend |
+
+---
+
+## 13. Validation Rules
+
+| Field | Rule |
+|-------|------|
+| `TEAMS_CHANNELS` env var | Valid JSON array, each item has `name` and `webhookUrl` |
+| `channelName` (request) | Must match a configured channel name |
+| `articleId` (request) | Must be valid UUID, article must exist |
+
+---
+
+## 14. Out of Scope (Future Enhancements)
+
+The following are explicitly excluded from this feature:
+- Images in Teams cards (requires public URL hosting)
+- Bulk send (multiple articles at once)
+- Scheduled/automated sends
+- User-configured channels (self-service webhook setup)
+- Send history/audit log
+- Channel-specific card customization
+- Digest format (multiple articles in one card)
+
+---
+
+## 15. Summary
+
+This feature enables users to share individual articles to Microsoft Teams channels:
+
+1. Admin configures webhook URLs in environment variables
+2. User clicks "Send to Teams" button on article
+3. User selects target channel from modal
+4. User confirms and article is sent as Adaptive Card
+5. Team members see rich card in Teams with "Read Article" button
+
+Simple, secure, and extensible for future enhancements.

@@ -10,11 +10,25 @@ from app.models.group_research import GroupResearch
 from app.models.group_articles import GroupArticle
 
 
-def seed_prompts_if_empty():
+def seed_or_upgrade_prompts():
     """Auto-seed prompts table on startup if empty (V-22)"""
     from sqlalchemy.orm import Session
     from sqlalchemy import select, func
     from app.models.prompt import Prompt
+
+    RESEARCH_PROMPT_TEXT = """Research this story to help write an article that answers: "How does this help me work better with AI?"
+
+**Story:** {{TITLE}}
+**Details:** {{SUMMARY}}
+
+Use web search to find:
+- What's actually new or different here
+- Real-world examples of people/companies benefiting
+- Step-by-step applications if any exist
+- Honest assessment of limitations
+- Links to try it yourself (tools, demos, papers)
+
+Write for someone with 5 minutes who wants to know if this matters."""
 
     db = Session(bind=engine)
     try:
@@ -22,16 +36,41 @@ def seed_prompts_if_empty():
         if existing_count == 0:
             defaults = [
                 {"prompt_key": "categorize_post", "prompt_text": "You are categorizing social media posts about AI. Read the post carefully and assign it to exactly ONE category based on the primary topic. Consider the main subject matter, not peripheral mentions.\n\nCategorize into one of the following categories:\n{{CATEGORIES}}\n\nReturn ONLY the category name, nothing else.", "model": "gpt-5-mini", "temperature": 0.3, "max_tokens": 50, "description": "Post categorization prompt (uses {{CATEGORIES}} placeholder)"},
-                {"prompt_key": "generate_title", "prompt_text": "Generate a concise, engaging title (max 80 chars) for this X/Twitter thread. Focus on the main insight or takeaway.", "model": "gpt-5.1", "temperature": 0.7, "max_tokens": 100, "description": "Article title generation"},
-                {"prompt_key": "generate_article", "prompt_text": "Transform this X/Twitter thread into a professional blog article. Preserve key insights, add context where needed, maintain the author's voice.", "model": "gpt-5.1", "temperature": 0.7, "max_tokens": 1500, "description": "Full article generation"},
-                {"prompt_key": "score_worthiness", "prompt_text": "Rate this post's worthiness for article generation (0.0-1.0). Consider: insight quality, topic relevance, completeness, engagement potential. Return ONLY a number between 0.0 and 1.0.", "model": "gpt-5-mini", "temperature": 0.3, "max_tokens": 50, "description": "AI worthiness scoring (V-6)"},
+                {"prompt_key": "score_worthiness", "prompt_text": "Rate this post's value for an e-commerce team improving their AI skills (0.0-1.0). High scores for: new AI models/tools, practical AI applications, actionable AI techniques, breaking AI news. Low scores for: opinion pieces, hype without substance, non-actionable content. Return ONLY a number.", "model": "gpt-5-mini", "temperature": 0.3, "max_tokens": 50, "description": "AI worthiness scoring for e-commerce AI upskilling"},
                 {"prompt_key": "detect_duplicate", "prompt_text": "Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.", "model": "gpt-5-mini", "temperature": 0.0, "max_tokens": 10, "description": "AI duplicate detection (returns similarity score 0.0-1.0)"},
-                {"prompt_key": "suggest_improvements", "prompt_text": "Suggest 3 specific improvements for this draft article. Focus on clarity, structure, and reader value.", "model": "gpt-5.2", "temperature": 0.7, "max_tokens": 500, "description": "Article improvement suggestions"}
+                {"prompt_key": "research_prompt", "prompt_text": RESEARCH_PROMPT_TEXT, "model": "gpt-5-search-api", "temperature": 0.7, "max_tokens": 4000, "description": "Research prompt for web search (uses {{TITLE}} and {{SUMMARY}} placeholders)"}
             ]
             for prompt_data in defaults:
                 db.add(Prompt(**prompt_data))
             db.commit()
-            print("✓ Auto-seeded 6 default prompts (V-22)")
+            print("✓ Auto-seeded 4 default prompts")
+        else:
+            # FIX-2: Check and upgrade stale categorize_post prompt
+            categorize_prompt = db.execute(
+                select(Prompt).where(Prompt.prompt_key == "categorize_post")
+            ).scalar_one_or_none()
+            if categorize_prompt and "{{CATEGORIES}}" not in categorize_prompt.prompt_text:
+                categorize_prompt.prompt_text = "You are categorizing social media posts about AI. Read the post carefully and assign it to exactly ONE category based on the primary topic. Consider the main subject matter, not peripheral mentions.\n\nCategorize into one of the following categories:\n{{CATEGORIES}}\n\nReturn ONLY the category name, nothing else."
+                categorize_prompt.model = "gpt-5-mini"
+                categorize_prompt.description = "Post categorization prompt (uses {{CATEGORIES}} placeholder)"
+                db.commit()
+                print("✓ Upgraded categorize_post prompt to use {{CATEGORIES}} placeholder")
+
+            # Ensure research_prompt exists (for existing installs)
+            research_prompt = db.execute(
+                select(Prompt).where(Prompt.prompt_key == "research_prompt")
+            ).scalar_one_or_none()
+            if not research_prompt:
+                db.add(Prompt(
+                    prompt_key="research_prompt",
+                    prompt_text=RESEARCH_PROMPT_TEXT,
+                    model="gpt-5-search-api",
+                    temperature=0.7,
+                    max_tokens=4000,
+                    description="Research prompt for web search (uses {{TITLE}} and {{SUMMARY}} placeholders)"
+                ))
+                db.commit()
+                print("✓ Added research_prompt to existing prompts")
     finally:
         db.close()
 
@@ -103,7 +142,7 @@ async def startup_event():
     # Initialize default settings (V-21)
     initialize_default_settings()
     # Auto-seed prompts (V-22)
-    seed_prompts_if_empty()
+    seed_or_upgrade_prompts()
     # Setup logging
     setup_logging()
     # Start scheduler
@@ -156,6 +195,10 @@ app.include_router(research.router, prefix="/api/groups", tags=["research"])
 # V-11, V-12, V-19: Group articles router (nested under groups)
 from app.api import group_articles
 app.include_router(group_articles.router, prefix="/api/groups", tags=["group-articles"])
+
+# Teams integration router (V-15)
+from app.api import teams
+app.include_router(teams.router, prefix="/api/teams", tags=["teams"])
 
 
 @app.get("/health")

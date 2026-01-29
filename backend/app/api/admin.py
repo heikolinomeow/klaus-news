@@ -224,7 +224,7 @@ async def get_archive_preview(db: Session = Depends(get_db)):
     - Current archive age threshold
     """
     try:
-        from app.models.post import Post
+        from app.models.group import Group
         from app.services.settings_service import SettingsService
         from sqlalchemy import select, func
         from datetime import datetime, timedelta, timezone
@@ -235,10 +235,10 @@ async def get_archive_preview(db: Session = Depends(get_db)):
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=archive_age_days)
 
         count = db.execute(
-            select(func.count(Post.id))
-            .where(Post.created_at < cutoff_date)
-            .where(Post.selected == False)
-            .where(Post.archived == False)
+            select(func.count(Group.id))
+            .where(Group.first_seen < cutoff_date)
+            .where(Group.selected == False)
+            .where(Group.archived == False)
         ).scalar()
 
         return {

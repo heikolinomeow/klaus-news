@@ -46,31 +46,19 @@ class OpenAIClient:
             "categorize_post": {
                 "prompt_text": "You are categorizing social media posts about AI. Read the post carefully and assign it to exactly ONE category based on the primary topic. Consider the main subject matter, not peripheral mentions.\n\nCategorize into one of the following categories:\n{{CATEGORIES}}\n\nReturn ONLY the category name, nothing else.",
                 "model": "gpt-5-mini",  # Cost-effective reasoning model for classification
-                "max_completion_tokens": 50
+                "max_completion_tokens": 1000  # Reasoning models need extra tokens for internal thinking
                 # No temperature - gpt-5-mini only supports default (1)
             },
-            "generate_title": {
-                "prompt_text": "Generate a concise, engaging title (max 80 chars) for this X/Twitter thread.",
-                "model": "gpt-5.1",  # Quality model for titles
-                "temperature": 0.7,
-                "max_completion_tokens": 100
-            },
-            "generate_article": {
-                "prompt_text": "Transform this X/Twitter thread into a professional blog article.",
-                "model": "gpt-5.1",  # Quality model for article generation
-                "temperature": 0.7,
-                "max_completion_tokens": 1500
-            },
             "score_worthiness": {
-                "prompt_text": "Rate this post's worthiness for article generation (0.0-1.0). Return ONLY a number.",
+                "prompt_text": "Rate this post's value for an e-commerce team improving their AI skills (0.0-1.0). High scores for: new AI models/tools, practical AI applications, actionable AI techniques, breaking AI news. Low scores for: opinion pieces, hype without substance, non-actionable content. Return ONLY a number.",
                 "model": "gpt-5-mini",  # Cost-effective reasoning model for scoring
-                "max_completion_tokens": 50
+                "max_completion_tokens": 1000  # Reasoning models need extra tokens for internal thinking
                 # No temperature - gpt-5-mini only supports default (1)
             },
             "detect_duplicate": {
                 "prompt_text": "Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.",
                 "model": "gpt-5-mini",  # Cost-effective reasoning model for similarity check
-                "max_completion_tokens": 10
+                "max_completion_tokens": 5000  # Reasoning models need extra tokens for internal thinking
                 # No temperature - gpt-5-mini only supports default (1)
             }
         }
@@ -94,7 +82,7 @@ class OpenAIClient:
 
         client = AsyncOpenAI(api_key=self.api_key)
 
-        title_prompt = f"Generate a concise, informative title (maximum 100 characters) for this post: {post_text}. Return only the title, nothing else."
+        title_prompt = f"Generate a concise, informative title (maximum 100 characters) for this post: {post_text}. Return only the title, nothing else. Do not wrap the title in quotation marks."
         summary_prompt = f"Summarize this post in 2-3 sentences: {post_text}. Return only the summary, nothing else."
 
         logger.info("Generating title and summary", extra={
@@ -118,7 +106,7 @@ class OpenAIClient:
                 max_completion_tokens=100
             )
 
-            title = title_response.choices[0].message.content.strip()[:100]
+            title = title_response.choices[0].message.content.strip().strip('"').strip("'")[:100]
             summary = summary_response.choices[0].message.content.strip()
 
             logger.info("Title and summary generated successfully", extra={
@@ -289,7 +277,7 @@ class OpenAIClient:
             raise
 
 
-    async def score_worthiness(self, post_text: str) -> float:
+    async def score_worthiness(self, post_text: str, db=None) -> float:
         """Score post worthiness using AI (V-6)
 
         Uses database prompts when available (via _get_prompt), falls back
@@ -299,17 +287,39 @@ class OpenAIClient:
         """
         from openai import AsyncOpenAI, APIError
 
-        # Get prompt config with fallback to hardcoded (safe without V-4)
-        if hasattr(self, '_get_prompt'):
-            prompt_config = self._get_prompt("score_worthiness")
-        else:
-            # Fallback prompt config when _get_prompt doesn't exist yet
+        # Get prompt config - try database first, then fallback to hardcoded
+        prompt_config = None
+
+        # Try to get from database if db is provided and no existing prompt_service
+        if db is not None and self.prompt_service is None:
+            try:
+                from app.services.prompt_service import PromptService
+                temp_prompt_service = PromptService(db)
+                prompt_config = temp_prompt_service.get_prompt("score_worthiness")
+            except Exception:
+                pass  # Fall through to other methods
+
+        # Try existing prompt_service if no config yet
+        if prompt_config is None and self.prompt_service is not None:
+            try:
+                prompt_config = self.prompt_service.get_prompt("score_worthiness")
+            except Exception:
+                pass
+
+        # Fall back to hardcoded if still no config
+        if prompt_config is None:
             prompt_config = {
-                "prompt_text": "Rate this post's worthiness for article generation (0.0-1.0). Consider: insight quality, topic relevance, completeness, engagement potential. Return ONLY a number between 0.0 and 1.0.",
-                "model": "gpt-4o-mini",  # Cost-effective for scoring
-                "temperature": 0.3,
-                "max_completion_tokens": 50
+                "prompt_text": "Rate this post's value for an e-commerce team improving their AI skills (0.0-1.0). High scores for: new AI models/tools, practical AI applications, actionable AI techniques, breaking AI news. Low scores for: opinion pieces, hype without substance, non-actionable content. CRITICAL: Give 0.0 for error messages, broken content, inaccessible URLs, or anything that says 'Sorry, I can't access' or similar - these are system errors, not content. Return ONLY a number.",
+                "model": "gpt-5-mini",
+                "max_completion_tokens": 1000
             }
+
+        # CRITICAL: Override fixed constraints regardless of database values
+        # score_worthiness MUST use: gpt-5-mini, no temperature, max_completion_tokens=1000
+        prompt_config["model"] = "gpt-5-mini"
+        prompt_config["max_completion_tokens"] = 1000
+        if "temperature" in prompt_config:
+            del prompt_config["temperature"]
 
         model = prompt_config["model"]
         client = AsyncOpenAI(api_key=self.api_key)
@@ -690,22 +700,16 @@ class ResearchClient:
 
         client = AsyncOpenAI(api_key=self.api_key)
 
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a research assistant. Provide concise, factual research based on the given sources. Format output with markdown headings: ## Background, ## Key Facts Verified, ## Related Context, ## Sources."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_completion_tokens=1000
+        # NOTE: gpt-5-search-api is currently returning 500 errors (OpenAI issue as of Jan 2026)
+        # Using gpt-5.1 with web_search tool as workaround
+        # See GOTCHAS.md "OpenAI Search Models" section for details
+        response = await client.responses.create(
+            model="gpt-5.1",
+            tools=[{"type": "web_search"}],
+            input=prompt
         )
 
-        output = response.choices[0].message.content.strip()
-
-        return self._parse_research_response(response, "gpt-4o")
+        return self._parse_research_response(response, "gpt-5.1")
 
     async def agentic_research(self, prompt: str) -> dict:
         """Agentic research mode - multi-step reasoning, moderate depth
@@ -723,39 +727,17 @@ class ResearchClient:
 
         client = AsyncOpenAI(api_key=self.api_key)
 
-        # Step 1: Identify key questions
-        questions_response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Extract 3-5 key research questions that should be answered about this topic."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.5,
-            max_completion_tokens=300
+        # NOTE: gpt-5-search-api does NOT support reasoning parameter
+        # For agentic search with reasoning, use gpt-5.1 + web_search tool
+        # See GOTCHAS.md "OpenAI Search Models" section for details
+        response = await client.responses.create(
+            model="gpt-5.1",
+            tools=[{"type": "web_search"}],
+            reasoning={"effort": "high"},
+            input=prompt
         )
 
-        questions = questions_response.choices[0].message.content.strip()
-
-        # Step 2: Research each question
-        research_response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a research assistant. Answer each research question thoroughly based on the sources. Format output with markdown headings: ## Background, ## Key Facts Verified, ## Related Context, ## Sources."
-                },
-                {"role": "user", "content": f"{prompt}\n\nResearch questions to address:\n{questions}"}
-            ],
-            temperature=0.4,
-            max_completion_tokens=2000
-        )
-
-        output = research_response.choices[0].message.content.strip()
-
-        return self._parse_research_response(research_response, "gpt-4o")
+        return self._parse_research_response(response, "gpt-5.1")
 
     async def deep_research(self, prompt: str) -> dict:
         """Deep research mode - comprehensive research, multiple perspectives
@@ -773,64 +755,20 @@ class ResearchClient:
 
         client = AsyncOpenAI(api_key=self.api_key)
 
-        # Step 1: Identify stakeholders and perspectives
-        perspectives_response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Identify key stakeholders and different perspectives that should be considered for this topic."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.5,
-            max_completion_tokens=400
+        # NOTE: o4-mini-deep-research has web search BUILT-IN - do NOT pass tools=[{"type": "web_search"}]
+        # See GOTCHAS.md "OpenAI Search Models" section for details
+        response = await client.responses.create(
+            model="o4-mini-deep-research",
+            input=prompt
         )
 
-        perspectives = perspectives_response.choices[0].message.content.strip()
-
-        # Step 2: Research implications and context
-        implications_response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Analyze the implications, industry context, and broader significance of this topic."
-                },
-                {"role": "user", "content": f"{prompt}\n\nConsider these perspectives:\n{perspectives}"}
-            ],
-            temperature=0.4,
-            max_completion_tokens=1500
-        )
-
-        implications = implications_response.choices[0].message.content.strip()
-
-        # Step 3: Synthesize comprehensive research
-        synthesis_response = await client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a senior research analyst. Synthesize comprehensive research that covers background, verified facts, different perspectives, implications, and related context. Format output with markdown headings: ## Executive Summary, ## Background, ## Key Facts Verified, ## Multiple Perspectives, ## Industry Implications, ## Related Context, ## Sources."
-                },
-                {
-                    "role": "user",
-                    "content": f"{prompt}\n\nPerspectives identified:\n{perspectives}\n\nImplications analysis:\n{implications}"
-                }
-            ],
-            temperature=0.5,
-            max_completion_tokens=3000
-        )
-
-        output = synthesis_response.choices[0].message.content.strip()
-
-        return self._parse_research_response(synthesis_response, "gpt-4o")
+        return self._parse_research_response(response, "o4-mini-deep-research")
 
     def _parse_research_response(self, response, model_used: str) -> dict:
         """Parse OpenAI response into research result format
 
         Args:
-            response: OpenAI API response object
+            response: OpenAI responses.create API response object
             model_used: Model name used for the request
 
         Returns:
@@ -839,25 +777,16 @@ class ResearchClient:
                 - sources (list): List of source dicts
                 - model_used (str): Model name
         """
-        output = response.choices[0].message.content.strip()
+        output = response.output_text
 
-        # Extract sources from markdown (look for ## Sources section)
+        # Extract sources from response.citations
         sources = []
-        if "## Sources" in output:
-            sources_section = output.split("## Sources")[-1].strip()
-            # Parse numbered list like "1. URL - Title"
-            for line in sources_section.split("\n"):
-                line = line.strip()
-                if line and (line[0].isdigit() or line.startswith("-")):
-                    # Simple heuristic: if line contains http, extract URL
-                    if "http" in line:
-                        # Format: {"url": "...", "title": "..."}
-                        parts = line.split("http", 1)
-                        url = "http" + parts[1].split()[0].rstrip(".,;)")
-                        title = parts[0].strip("1234567890.-) ")
-                        if not title:
-                            title = url
-                        sources.append({"url": url, "title": title})
+        if hasattr(response, 'citations') and response.citations:
+            for citation in response.citations:
+                sources.append({
+                    "url": citation.url,
+                    "title": citation.title if hasattr(citation, 'title') else citation.url
+                })
 
         return {
             "output": output,

@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     x_api_secret: str = "placeholder_x_api_secret"
     # Note: X list IDs are stored in database (list_metadata table), not in config
     openai_api_key: str = "placeholder_openai_api_key"
-    teams_webhook_url: str = "placeholder_teams_webhook_url"
+    teams_channels: str = "[]"  # JSON array of {name, webhookUrl} objects
 
     # Database
     database_url: str = "postgresql://postgres:postgres@postgres:5432/klaus_news"

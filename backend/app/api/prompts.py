@@ -91,20 +91,8 @@ async def reset_prompt(prompt_key: str, db: Session = Depends(get_db)):
             "temperature": 0.3,
             "max_tokens": 50
         },
-        "generate_title": {
-            "prompt_text": "Generate a concise, engaging title (max 80 chars) for this X/Twitter thread. Focus on the main insight or takeaway.",
-            "model": "gpt-5.1",  # Quality model for titles
-            "temperature": 0.7,
-            "max_tokens": 100
-        },
-        "generate_article": {
-            "prompt_text": "Transform this X/Twitter thread into a professional blog article. Preserve key insights, add context where needed, maintain the author's voice.",
-            "model": "gpt-5.1",  # Quality model for article generation
-            "temperature": 0.7,
-            "max_tokens": 1500
-        },
         "score_worthiness": {
-            "prompt_text": "Rate this post's worthiness for article generation (0.0-1.0). Consider: insight quality, topic relevance, completeness, engagement potential. Return ONLY a number between 0.0 and 1.0.",
+            "prompt_text": "Rate this post's value for an e-commerce team improving their AI skills (0.0-1.0). High scores for: new AI models/tools, practical AI applications, actionable AI techniques, breaking AI news. Low scores for: opinion pieces, hype without substance, non-actionable content. Return ONLY a number.",
             "model": "gpt-5-mini",  # Cost-effective for scoring
             "temperature": 0.3,
             "max_tokens": 50
@@ -115,11 +103,11 @@ async def reset_prompt(prompt_key: str, db: Session = Depends(get_db)):
             "temperature": 0.0,
             "max_tokens": 10
         },
-        "suggest_improvements": {
-            "prompt_text": "Suggest 3 specific improvements for this draft article. Focus on clarity, structure, and reader value.",
-            "model": "gpt-5.2",  # Flagship model for quality suggestions
+        "research_prompt": {
+            "prompt_text": "Research this story to help write an article that answers: \"How does this help me work better with AI?\"\n\n**Story:** {{TITLE}}\n**Details:** {{SUMMARY}}\n\nUse web search to find:\n- What's actually new or different here\n- Real-world examples of people/companies benefiting\n- Step-by-step applications if any exist\n- Honest assessment of limitations\n- Links to try it yourself (tools, demos, papers)\n\nWrite for someone with 5 minutes who wants to know if this matters.",
+            "model": "gpt-5-search-api",
             "temperature": 0.7,
-            "max_tokens": 500
+            "max_tokens": 4000
         }
     }
 

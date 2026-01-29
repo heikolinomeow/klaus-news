@@ -135,7 +135,7 @@ environment:
 X_API_KEY=your_x_api_key_here
 X_API_SECRET=your_x_api_secret_here
 OPENAI_API_KEY=your_openai_api_key_here
-TEAMS_WEBHOOK_URL=your_teams_webhook_url_here
+TEAMS_CHANNELS='[{"name": "your-channel", "webhookUrl": "https://..."}]'
 
 # Database (Railway auto-provides this)
 DATABASE_URL=${{Postgres.DATABASE_URL}}
@@ -197,7 +197,7 @@ FRONTEND_URL=https://klaus-news-frontend-xyz789.up.railway.app
      X_API_KEY=<your_key>
      X_API_SECRET=<your_secret>
      OPENAI_API_KEY=<your_key>
-     TEAMS_WEBHOOK_URL=<your_webhook>
+     TEAMS_CHANNELS='[{"name": "your-channel", "webhookUrl": "<your_webhook>"}]'
      DATABASE_URL=${{Postgres.DATABASE_URL}}
      ```
    - Click "Deploy"

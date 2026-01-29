@@ -2,7 +2,7 @@
  * API client for backend communication
  */
 import axios from 'axios';
-import { PostsResponse, ArticlesResponse, Post, Article } from '../types';
+import { PostsResponse, ArticlesResponse, Post, Article, GroupArticle } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -50,7 +50,8 @@ export const settingsApi = {
     apiClient.post('/api/settings/batch/', { updates }),
   reset: () => apiClient.post('/api/settings/reset/'),
   validate: (key: string, value: string) =>
-    apiClient.get<{ valid: boolean; message: string }>(`/api/settings/validate/${key}/?value=${value}`)
+    apiClient.get<{ valid: boolean; message: string }>(`/api/settings/validate/${key}/?value=${value}`),
+  getArticlePrompts: () => apiClient.get<{ prompts: Record<string, string> }>('/api/settings/article-prompts/')
 };
 
 // Admin API (V-15, V-16, V-17)
@@ -83,7 +84,7 @@ export const groupsApi = {
   archive: (groupId: number) => apiClient.post(`/api/groups/${groupId}/archive/`),
   unarchive: (groupId: number) => apiClient.post(`/api/groups/${groupId}/unarchive/`),
   transition: (groupId: number, targetState: string) =>
-    apiClient.post(`/api/groups/${groupId}/transition/`, { target_state: targetState })
+    apiClient.post(`/api/groups/${groupId}/transition`, { target_state: targetState })
 };
 
 // Prompts API (V-4)
@@ -102,8 +103,8 @@ export const promptsApi = {
 
 // Research API (V-6, V-19)
 export const researchApi = {
-  run: (groupId: number, mode: string) =>
-    apiClient.post(`/api/groups/${groupId}/research/`, { mode }),
+  run: (groupId: number, mode: string, customPrompt?: string) =>
+    apiClient.post(`/api/groups/${groupId}/research/`, { mode, custom_prompt: customPrompt || undefined }),
   get: (groupId: number) =>
     apiClient.get(`/api/groups/${groupId}/research/`),
   update: (groupId: number, editedOutput: string) =>
@@ -114,10 +115,14 @@ export const researchApi = {
 export const groupArticlesApi = {
   generate: (groupId: number, style: string, customPrompt?: string) =>
     apiClient.post(`/api/groups/${groupId}/article/`, { style, custom_prompt: customPrompt }),
+  getAll: (groupId: number) =>
+    apiClient.get<{ articles: GroupArticle[]; count: number }>(`/api/groups/${groupId}/articles/`),
   get: (groupId: number) =>
     apiClient.get(`/api/groups/${groupId}/article/`),
-  refine: (groupId: number, instruction: string) =>
-    apiClient.put(`/api/groups/${groupId}/article/refine/`, { instruction })
+  update: (groupId: number, articleId: number, content: string, title?: string) =>
+    apiClient.put(`/api/groups/${groupId}/article/${articleId}/`, { content, title }),
+  refine: (groupId: number, articleId: number, instruction: string) =>
+    apiClient.put(`/api/groups/${groupId}/article/${articleId}/refine/`, { instruction })
 };
 
 // Logs API
@@ -130,6 +135,19 @@ export const logsApi = {
     apiClient.get(`/api/logs/${id}`),
   cleanup: (days: number = 30) =>
     apiClient.delete(`/api/logs/cleanup?days=${days}`)
+};
+
+// Teams API (V-13, V-19)
+export const teamsApi = {
+  getChannels: () =>
+    apiClient.get<{ channels: Array<{ name: string }> }>('/api/teams/channels'),
+  sendToTeams: (articleId: string, channelName: string) =>
+    apiClient.post<{ success: boolean; message?: string; error?: string }>('/api/teams/send', {
+      articleId,
+      channelName
+    }),
+  testChannels: () =>
+    apiClient.post<{ success: boolean; message: string }>('/api/teams/test')
 };
 
 

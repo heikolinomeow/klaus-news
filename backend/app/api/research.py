@@ -14,6 +14,7 @@ router = APIRouter()
 
 class RunResearchRequest(BaseModel):
     mode: str = "agentic"  # quick, agentic, deep
+    custom_prompt: Optional[str] = None  # Session-level prompt override
 
 
 class UpdateResearchRequest(BaseModel):
@@ -34,6 +35,7 @@ async def run_research(
     from app.services.openai_client import research_client
     from app.models.group_research import GroupResearch
     from app.models.post import Post
+    from app.models.prompt import Prompt
     import json
 
     # Validate group exists
@@ -46,32 +48,41 @@ async def run_research(
         select(Post).where(Post.group_id == group_id)
     ).scalars().all()
 
-    # Build research prompt
-    prompt = f"""Research the following news topic thoroughly.
+    # Get research prompt - use custom if provided, otherwise from DB
+    if request.custom_prompt:
+        prompt_template = request.custom_prompt
+    else:
+        # Fetch default from prompts table
+        prompt_record = db.execute(
+            select(Prompt).where(Prompt.prompt_key == "research_prompt")
+        ).scalar_one_or_none()
 
-Topic: {group.representative_title}
-Summary: {group.representative_summary or 'N/A'}
-Category: {group.category}
+        if prompt_record:
+            prompt_template = prompt_record.prompt_text
+        else:
+            # Fallback if not in DB
+            prompt_template = """Research this story to help write an article that answers: "How does this help me work better with AI?"
 
-Source posts:
-"""
+**Story:** {{TITLE}}
+**Details:** {{SUMMARY}}
+
+Use web search to find:
+- What's actually new or different here
+- Real-world examples of people/companies benefiting
+- Step-by-step applications if any exist
+- Honest assessment of limitations
+- Links to try it yourself (tools, demos, papers)
+
+Write for someone with 5 minutes who wants to know if this matters."""
+
+    # Replace placeholders
+    prompt = prompt_template.replace("{{TITLE}}", group.representative_title or "N/A")
+    prompt = prompt.replace("{{SUMMARY}}", group.representative_summary or "N/A")
+
+    # Append source posts for context
+    prompt += "\n\nSource posts for context:"
     for i, post in enumerate(posts, 1):
         prompt += f"\n{i}. {post.original_text[:500]}"
-
-    prompt += """
-
-Please provide:
-## Background
-Brief context about this topic.
-
-## Key Facts Verified
-Bullet points of verified facts with source numbers.
-
-## Related Context
-Industry context and implications.
-
-## Sources
-Numbered list of source URLs."""
 
     # Run research based on mode
     if request.mode == "quick":

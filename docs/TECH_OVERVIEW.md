@@ -2,8 +2,8 @@
 
 ## Current Implementation Status
 
-**Status:** ~95% backend implemented (including Research & Article Generation), ~75% frontend implemented (Settings feature complete, Cooking workflow UI incomplete)
-**Last Updated:** 2026-01-26
+**Status:** ~95% backend implemented (including Research & Article Generation), ~80% frontend implemented (Settings feature complete, Microsoft Teams Integration complete, Cooking workflow UI incomplete)
+**Last Updated:** 2026-01-27
 
 This document describes **how Klaus News technically solves** the requirements and what is currently implemented from a technical/architectural perspective.
 
@@ -441,12 +441,16 @@ CREATE INDEX idx_category_timestamp ON system_logs(category, timestamp);
 - **Location:** [backend/app/api/articles.py:62-82](backend/app/api/articles.py)
 - **Technical Detail:** Uses same generation function but increments counter
 
-**✅ `POST /api/articles/{id}/post-to-teams`** - FULLY IMPLEMENTED
-- Calls `teams_client.post_article(article.title, article.content)`
-- Sets `posted_to_teams` timestamp
-- Returns success message
-- **Location:** [backend/app/api/articles.py:85-99](backend/app/api/articles.py)
-- **Technical Detail:** Sets timestamp to prevent re-posting same article
+**✅ `POST /api/teams/send`** - FULLY IMPLEMENTED (multi-channel)
+- Calls `teams_service.send_to_teams(articleId, channelName, db)`
+- Supports multiple configured channels via `TEAMS_CHANNELS` env var
+- Returns `{success: true/false, message/error}`
+- **Location:** [backend/app/api/teams.py](backend/app/api/teams.py)
+- **Technical Detail:** Channel webhooks never exposed to frontend
+
+**✅ `GET /api/teams/channels`** - FULLY IMPLEMENTED
+- Returns list of configured channel names (no webhook URLs)
+- **Location:** [backend/app/api/teams.py](backend/app/api/teams.py)
 
 ---
 
@@ -693,6 +697,23 @@ CREATE INDEX idx_category_timestamp ON system_logs(category, timestamp);
 
 ---
 
+### Teams API (NEW)
+
+**`GET /api/teams/channels`** - FULLY IMPLEMENTED
+- Returns list of configured channel names (no webhook URLs)
+- Response: `{"channels": [{"name": "general-news"}, ...]}`
+- Returns empty array if TEAMS_CHANNELS not configured
+- **Location:** backend/app/api/teams.py
+
+**`POST /api/teams/send`** - FULLY IMPLEMENTED
+- Sends article to specified Teams channel
+- Request: `{"articleId": "uuid", "channelName": "tech-updates"}`
+- Success response: `{"success": true, "message": "Article sent to #tech-updates"}`
+- Error responses: "Channel not found", "Article not found", "Failed to send to Teams"
+- **Location:** backend/app/api/teams.py
+
+---
+
 ### Research API (NEW - Specs V-19)
 
 **✅ `POST /api/groups/{id}/research/`** - READY FOR IMPLEMENTATION
@@ -811,6 +832,41 @@ class OpenAIClient:
         self.model = "gpt-5.1"  # Default model for quality tasks
         # Uses AsyncOpenAI for async API calls
 ```
+
+**API Parameter Requirements (CRITICAL):**
+
+All OpenAI API calls follow these patterns for newer models (gpt-5.x series):
+
+1. **Use `max_completion_tokens` instead of `max_tokens`:**
+   ```python
+   # CORRECT for gpt-5.1, gpt-5-mini, gpt-5.2
+   response = await client.chat.completions.create(
+       model="gpt-5.1",
+       messages=[...],
+       max_completion_tokens=100  # NOT max_tokens
+   )
+   ```
+
+2. **Temperature is model-dependent:**
+   - `gpt-5.1`, `gpt-5.2`: Support custom temperature (0.0-2.0)
+   - `gpt-5-mini`: Reasoning model, only supports `temperature=1` (default) - **do not pass temperature parameter**
+
+   ```python
+   # Conditional temperature handling
+   create_kwargs = {
+       "model": model,
+       "messages": messages,
+       "max_completion_tokens": max_tokens
+   }
+   if "temperature" in prompt_config:  # Only add if supported
+       create_kwargs["temperature"] = prompt_config["temperature"]
+   response = await client.chat.completions.create(**create_kwargs)
+   ```
+
+3. **All methods log to system_logs table:**
+   - Logger: `klaus_news.openai_client`
+   - Category: `external_api`
+   - Logs: method name, model, prompt snippet, response status, token counts, errors
 
 **Three Fully Functional Methods:**
 
@@ -1084,48 +1140,45 @@ worthiness = 0.4 × relevance + 0.4 × quality + 0.2 × recency
 
 ---
 
-### Teams Integration ✅
+### Teams Integration
 
-**Location:** [backend/app/services/teams_client.py](backend/app/services/teams_client.py)
+**Location:** backend/app/services/teams_service.py
 
 **Technical Implementation:**
 
-```python
-class TeamsClient:
-    def __init__(self):
-        self.webhook_url = settings.teams_webhook_url
+TeamsService supports multi-channel configuration via `TEAMS_CHANNELS` environment variable (JSON array of `{name, webhookUrl}` objects).
 
-    async def post_article(self, title: str, content: str) -> bool:
-        """Post article to Teams webhook"""
+**Adaptive Card v1.4 Format:**
+```json
+{
+  "type": "message",
+  "attachments": [{
+    "contentType": "application/vnd.microsoft.card.adaptive",
+    "content": {
+      "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+      "type": "AdaptiveCard",
+      "version": "1.4",
+      "body": [
+        {"type": "TextBlock", "text": "CATEGORY", "size": "small", "color": "accent", "weight": "bolder"},
+        {"type": "TextBlock", "text": "Article Title", "size": "large", "weight": "bolder", "wrap": true},
+        {"type": "TextBlock", "text": "Summary text...", "wrap": true},
+        {"type": "TextBlock", "text": "Source: TechCrunch • Jan 26, 2026", "size": "small", "isSubtle": true}
+      ],
+      "actions": [
+        {"type": "Action.OpenUrl", "title": "Read Article", "url": "https://..."}
+      ]
+    }
+  }]
+}
 ```
 
 **How It Works:**
-1. Constructs Microsoft Teams Adaptive Card (v1.2):
-   ```json
-   {
-     "type": "message",
-     "attachments": [{
-       "contentType": "application/vnd.microsoft.card.adaptive",
-       "content": {
-         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-         "type": "AdaptiveCard",
-         "version": "1.2",
-         "body": [
-           {"type": "TextBlock", "text": title, "size": "Large", "weight": "Bolder"},
-           {"type": "TextBlock", "text": content, "wrap": true}
-         ]
-       }
-     }]
-   }
-   ```
-2. Makes async POST request to webhook URL via httpx
-3. Returns True if status == 200, False otherwise
-
-**Technical Details:**
-- Adaptive Card format ensures rich formatting in Teams
-- Title displayed as large, bold text
-- Content wraps properly in Teams client
-- Async execution doesn't block API response
+1. Frontend calls GET /api/teams/channels to fetch available channels
+2. User selects channel in TeamsChannelModal
+3. Frontend calls POST /api/teams/send with articleId and channelName
+4. Backend builds Adaptive Card from article data
+5. Backend POSTs to channel's webhook URL
+6. Success/error response returned to frontend
 
 ---
 
@@ -1316,7 +1369,7 @@ def setup_logging():
     loggers_config = [
         ('klaus_news.x_client', 'external_api'),
         ('klaus_news.openai_client', 'external_api'),
-        ('klaus_news.teams_client', 'external_api'),
+        ('klaus_news.teams_service', 'external_api'),
         ('klaus_news.scheduler', 'scheduler'),
         ('klaus_news.api', 'api'),
         ('klaus_news.database', 'database'),
@@ -1507,6 +1560,50 @@ def score_worthiness(self, post_text: str, category: str) -> float:
 
 ---
 
+### Teams Service (NEW)
+
+**Location:** backend/app/services/teams_service.py
+
+**Technical Implementation:**
+
+```python
+class TeamsService:
+    """Multi-channel Teams webhook integration"""
+
+    def get_channels() -> list[dict]:
+        """
+        Get configured Teams channels from TEAMS_CHANNELS env var.
+        Returns list of {name: str} (webhook URLs never exposed).
+        """
+
+    def send_to_teams(article_id: str, channel_name: str) -> dict:
+        """
+        Send article to specified Teams channel.
+        Returns {success: bool, message: str} or {success: bool, error: str}
+        """
+
+    def build_adaptive_card(article: Article) -> dict:
+        """
+        Build Microsoft Adaptive Card v1.4 JSON from article data.
+        Includes: category badge, title, summary, Read Article button, source footer.
+        """
+```
+
+**TEAMS_CHANNELS Environment Variable:**
+```bash
+TEAMS_CHANNELS='[
+  {"name": "general-news", "webhookUrl": "https://outlook.office.com/webhook/..."},
+  {"name": "tech-updates", "webhookUrl": "https://outlook.office.com/webhook/..."}
+]'
+```
+
+**Security:**
+- Webhook URLs stored in env vars only
+- GET /api/teams/channels returns names only (never URLs)
+- Input validation on articleId (UUID) and channelName
+
+---
+
 ## Frontend Implementation Status
 
 ### Components
@@ -1586,6 +1683,38 @@ def score_worthiness(self, post_text: str, category: str) -> float:
 - Click handler: `onClick={() => onSelectPost(post)}`
 
 **Status:** Complete and working perfectly
+
+---
+
+#### **TeamsChannelModal.tsx** (NEW)
+**Location:** frontend/src/components/TeamsChannelModal.tsx
+
+**Technical Implementation:**
+- Props: `article` (article data), `onClose` (close handler), `onSuccess` (success callback)
+- State: `channels` (list), `selectedChannel` (string), `loading` (boolean), `error` (string)
+- Fetches channels on mount via `teamsApi.getChannels()`
+- Calls `teamsApi.sendToTeams(articleId, channelName)` on submit
+- Displays toast notifications for success/error
+
+**UI Elements:**
+- Modal overlay with dark background
+- Radio button list of channels
+- Article preview section (title + summary)
+- Cancel and Send to Teams buttons
+- Loading state during API call
+- Error message display
+
+---
+
+#### **TeamsSettingsSection.tsx** (NEW)
+**Location:** frontend/src/components/TeamsSettingsSection.tsx
+
+**Technical Implementation:**
+- Fetches channels on mount via `teamsApi.getChannels()`
+- Displays channel table with Name and Status columns
+- "Test All Connections" button triggers validation
+- Empty state with warning icon when no channels
+- Info message about environment variable configuration
 
 ---
 
@@ -1783,6 +1912,12 @@ export const postsApi = {
   getRecommended: () => apiClient.get<PostsResponse>('/api/posts/recommended'),
   getById: (id: number) => apiClient.get<PostResponse>(`/api/posts/${id}`)
   // selectPost removed - selection now at group level (V-15)
+};
+
+export const teamsApi = {
+  getChannels: () => apiClient.get('/api/teams/channels'),
+  sendToTeams: (articleId: string, channelName: string) =>
+    apiClient.post('/api/teams/send', { articleId, channelName })
 };
 
 export const groupsApi = {
@@ -2013,7 +2148,7 @@ class Settings(BaseSettings):
 - `X_API_KEY` - X/Twitter API Bearer token
 - `X_LIST_IDS` - Comma-separated X list IDs (e.g., "123,456,789")
 - `OPENAI_API_KEY` - OpenAI API key
-- `TEAMS_WEBHOOK_URL` - Microsoft Teams incoming webhook URL
+- `TEAMS_CHANNELS` - JSON array of Teams channels: `[{"name": "channel", "webhookUrl": "https://..."}]`
 - `DATABASE_URL` - PostgreSQL connection string
 
 **Template:** `.env.example` provided in repository
@@ -2356,8 +2491,7 @@ klaus-news/
 │   │   │   ├── __init__.py
 │   │   │   ├── x_client.py      # X API client ✅
 │   │   │   ├── openai_client.py # OpenAI client (includes duplicate detection) ✅
-│   │   │   ├── teams_client.py  # Teams webhook ✅
-│   │   │   ├── scoring.py       # Worthiness algorithm ✅
+│   │   │   ├── teams_service.py # Teams multi-channel webhook ✅
 │   │   │   ├── scheduler.py     # Background jobs (3 jobs: ingest, archive, log cleanup) ✅
 │   │   │   ├── settings_service.py # Settings with caching ✅
 │   │   │   ├── logging_handler.py  # Custom database logging handler ✅

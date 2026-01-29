@@ -1,5 +1,5 @@
 /**
- * PostList component - displays groups with expand/collapse for post variations (V-5)
+ * PostList component - displays groups as tiles (V-5)
  */
 import { useState } from 'react';
 import { Post, Group } from '../types';
@@ -9,21 +9,20 @@ interface PostListProps {
   groups: Group[];
   onSelectGroup?: (groupId: number) => void;
   onArchiveGroup?: (groupId: number) => void;
+  isSelecting?: boolean;
 }
 
-function PostList({ groups, onSelectGroup, onArchiveGroup }: PostListProps) {
+function PostList({ groups, onSelectGroup, onArchiveGroup, isSelecting }: PostListProps) {
   const [expandedGroupId, setExpandedGroupId] = useState<number | null>(null);
   const [groupPosts, setGroupPosts] = useState<Record<number, Post[]>>({});
   const [loadingGroupId, setLoadingGroupId] = useState<number | null>(null);
 
   const handleGroupClick = async (groupId: number) => {
     if (expandedGroupId === groupId) {
-      // Collapse if already expanded
       setExpandedGroupId(null);
       return;
     }
 
-    // Expand and fetch posts if not already loaded
     setExpandedGroupId(groupId);
     if (!groupPosts[groupId]) {
       setLoadingGroupId(groupId);
@@ -39,62 +38,58 @@ function PostList({ groups, onSelectGroup, onArchiveGroup }: PostListProps) {
   };
 
   if (groups.length === 0) {
-    return <div className="post-list-empty">No groups available</div>;
+    return <div className="post-list-empty">No stories match the current filters</div>;
   }
 
   return (
-    <div className="post-list">
+    <div className="post-tiles-grid">
       {groups.map((group) => (
-        <div key={group.id} className="group-card">
-          <div className="group-header">
-            <div
-              className="group-header-clickable"
-              onClick={() => handleGroupClick(group.id)}
-            >
-              <h3>{group.representative_title}</h3>
-              <span className="post-count-badge">
+        <div key={group.id} className="group-tile">
+          <div className="tile-header" onClick={() => handleGroupClick(group.id)}>
+            <h3 className="tile-title">{group.representative_title}</h3>
+            <div className="tile-meta">
+              <span className="tile-source-badge">
                 {group.post_count} {group.post_count === 1 ? 'source' : 'sources'}
               </span>
-              <div className="group-meta">
-                <span className="group-category">{group.category || 'Uncategorized'}</span>
-                <span className="expand-icon">{expandedGroupId === group.id ? '▼' : '▶'}</span>
-              </div>
-            </div>
-            <div className="group-actions">
-              <button
-                className="write-article-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelectGroup?.(group.id);
-                }}
-              >
-                Write Article
-              </button>
-              <button
-                className="archive-btn"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onArchiveGroup?.(group.id);
-                }}
-              >
-                Archive
-              </button>
+              <span className="tile-category">{group.category || 'Other'}</span>
             </div>
           </div>
 
+          <div className="tile-actions">
+            <button
+              className="tile-btn tile-btn-primary"
+              disabled={isSelecting}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectGroup?.(group.id);
+              }}
+            >
+              {isSelecting ? 'Selecting...' : 'Cook with that 🍳'}
+            </button>
+            <button
+              className="tile-btn tile-btn-secondary"
+              onClick={(e) => {
+                e.stopPropagation();
+                onArchiveGroup?.(group.id);
+              }}
+            >
+              Not interesting
+            </button>
+          </div>
+
           {expandedGroupId === group.id && (
-            <div className="group-posts-expanded">
+            <div className="tile-expanded">
               {loadingGroupId === group.id ? (
-                <div className="loading">Loading posts...</div>
+                <div className="tile-loading">Loading...</div>
               ) : (
                 groupPosts[group.id]?.map((post) => (
-                  <div key={post.id} className="post-variation">
+                  <div key={post.id} className="tile-post">
                     <h4>{post.ai_title || 'Untitled'}</h4>
-                    <p className="post-summary">{post.ai_summary || post.original_text}</p>
-                    <div className="post-meta">
-                      <span className="post-author">{post.author || 'Unknown'}</span>
+                    <p>{post.ai_summary || post.original_text}</p>
+                    <div className="tile-post-meta">
+                      <span className="tile-post-author">{post.author || 'Unknown'}</span>
                       {post.worthiness_score && (
-                        <span className="post-score">Score: {post.worthiness_score.toFixed(2)}</span>
+                        <span className="tile-post-score">Score: {post.worthiness_score.toFixed(2)}</span>
                       )}
                     </div>
                   </div>

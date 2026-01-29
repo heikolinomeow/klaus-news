@@ -21,6 +21,11 @@ class RefineArticleRequest(BaseModel):
     instruction: str
 
 
+class UpdateArticleRequest(BaseModel):
+    content: str
+    title: Optional[str] = None
+
+
 @router.post("/{group_id}/article/")
 async def generate_article(
     group_id: int = Path(..., description="Group ID"),
@@ -49,12 +54,12 @@ async def generate_article(
     if not posts:
         raise HTTPException(status_code=400, detail="No posts in group")
 
-    # Get research if exists
+    # Get research if exists (get most recent)
     research = db.execute(
         select(GroupResearch)
         .where(GroupResearch.group_id == group_id)
         .order_by(GroupResearch.created_at.desc())
-    ).scalar_one_or_none()
+    ).scalars().first()
 
     # Get prompt based on style
     if request.style == "custom":
@@ -89,15 +94,25 @@ Output format: Plain text with paragraphs (will be published to Teams).
 Start with a compelling headline, then write the article content."""
 
     # Generate article
+    # NOTE: gpt-5-mini is a reasoning model - does NOT support temperature parameter
+    # See GOTCHAS.md "gpt-5-mini Temperature Limitation" section
     client = AsyncOpenAI(api_key=openai_client.api_key)
     response = await client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-5-mini",
         messages=[{"role": "user", "content": full_prompt}],
-        temperature=0.7,
-        max_tokens=2000
+        max_completion_tokens=2000
     )
 
     content = response.choices[0].message.content.strip()
+
+    # Extract title from first line if it looks like a headline
+    title = None
+    lines = content.split('\n', 1)
+    if len(lines) > 0:
+        first_line = lines[0].strip()
+        # Use first line as title if it's short enough and doesn't start with markdown list markers
+        if len(first_line) <= 200 and not first_line.startswith(('-', '*', '1.', '2.', '3.')):
+            title = first_line.strip('#').strip()  # Remove markdown header symbols
 
     # Save article
     article = GroupArticle(
@@ -105,6 +120,7 @@ Start with a compelling headline, then write the article content."""
         research_id=research.id if research else None,
         style=request.style,
         prompt_used=style_prompt,
+        title=title,
         content=content
     )
     db.add(article)
@@ -121,9 +137,41 @@ Start with a compelling headline, then write the article content."""
             "id": article.id,
             "group_id": article.group_id,
             "style": article.style,
+            "title": article.title,
             "content": article.content,
             "created_at": article.created_at.isoformat() if article.created_at else None
         }
+    }
+
+
+@router.get("/{group_id}/articles/")
+async def get_all_articles(
+    group_id: int = Path(..., description="Group ID"),
+    db: Session = Depends(get_db)
+):
+    """Get all articles for a group, ordered by creation date descending"""
+    from app.models.group_articles import GroupArticle
+
+    articles = db.execute(
+        select(GroupArticle)
+        .where(GroupArticle.group_id == group_id)
+        .order_by(GroupArticle.created_at.desc())
+    ).scalars().all()
+
+    return {
+        "articles": [
+            {
+                "id": a.id,
+                "group_id": a.group_id,
+                "style": a.style,
+                "title": a.title,
+                "content": a.content,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+                "updated_at": a.updated_at.isoformat() if a.updated_at else None
+            }
+            for a in articles
+        ],
+        "count": len(articles)
     }
 
 
@@ -132,14 +180,14 @@ async def get_article(
     group_id: int = Path(..., description="Group ID"),
     db: Session = Depends(get_db)
 ):
-    """Get current article for a group (V-19)"""
+    """Get most recent article for a group (V-19)"""
     from app.models.group_articles import GroupArticle
 
     article = db.execute(
         select(GroupArticle)
         .where(GroupArticle.group_id == group_id)
         .order_by(GroupArticle.updated_at.desc())
-    ).scalar_one_or_none()
+    ).scalars().first()
 
     if not article:
         raise HTTPException(status_code=404, detail="No article found for this group")
@@ -149,6 +197,7 @@ async def get_article(
             "id": article.id,
             "group_id": article.group_id,
             "style": article.style,
+            "title": article.title,
             "content": article.content,
             "created_at": article.created_at.isoformat() if article.created_at else None,
             "updated_at": article.updated_at.isoformat() if article.updated_at else None
@@ -156,16 +205,61 @@ async def get_article(
     }
 
 
-@router.put("/{group_id}/article/refine/")
+@router.put("/{group_id}/article/{article_id}/")
+async def update_article(
+    group_id: int = Path(..., description="Group ID"),
+    article_id: int = Path(..., description="Article ID"),
+    request: UpdateArticleRequest = ...,
+    db: Session = Depends(get_db)
+):
+    """Directly update a specific article's content (manual editing)"""
+    from app.models.group_articles import GroupArticle
+    from sqlalchemy import update
+
+    # Get specific article and verify it belongs to the group
+    article = db.execute(
+        select(GroupArticle)
+        .where(GroupArticle.id == article_id, GroupArticle.group_id == group_id)
+    ).scalars().first()
+
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    # Update article content and title
+    update_values = {"content": request.content}
+    if request.title is not None:
+        update_values["title"] = request.title
+
+    db.execute(
+        update(GroupArticle)
+        .where(GroupArticle.id == article_id)
+        .values(**update_values)
+    )
+    db.commit()
+    db.refresh(article)
+
+    return {
+        "article": {
+            "id": article.id,
+            "group_id": article.group_id,
+            "style": article.style,
+            "title": article.title,
+            "content": request.content
+        }
+    }
+
+
+@router.put("/{group_id}/article/{article_id}/refine/")
 async def refine_article(
     group_id: int = Path(..., description="Group ID"),
+    article_id: int = Path(..., description="Article ID"),
     request: RefineArticleRequest = ...,
     db: Session = Depends(get_db)
 ):
-    """Refine article with instruction (V-12, V-19)
+    """Refine a specific article with instruction (V-12, V-19)
 
-    Uses current article + research + posts + instruction to generate refined version.
-    Replaces previous version (no multiple drafts).
+    Uses specified article + research + posts + instruction to generate refined version.
+    Updates the article in place.
     """
     from app.services.openai_client import openai_client
     from app.models.group_articles import GroupArticle
@@ -174,15 +268,14 @@ async def refine_article(
     from openai import AsyncOpenAI
     from sqlalchemy import update
 
-    # Get current article
+    # Get specific article and verify it belongs to the group
     article = db.execute(
         select(GroupArticle)
-        .where(GroupArticle.group_id == group_id)
-        .order_by(GroupArticle.updated_at.desc())
-    ).scalar_one_or_none()
+        .where(GroupArticle.id == article_id, GroupArticle.group_id == group_id)
+    ).scalars().first()
 
     if not article:
-        raise HTTPException(status_code=404, detail="No article found for this group")
+        raise HTTPException(status_code=404, detail="Article not found")
 
     # Get group
     group = db.execute(select(Group).where(Group.id == group_id)).scalar_one_or_none()
@@ -190,12 +283,12 @@ async def refine_article(
     # Get posts
     posts = db.execute(select(Post).where(Post.group_id == group_id)).scalars().all()
 
-    # Get research if exists
+    # Get research if exists (get most recent)
     research = db.execute(
         select(GroupResearch)
         .where(GroupResearch.group_id == group_id)
         .order_by(GroupResearch.created_at.desc())
-    ).scalar_one_or_none()
+    ).scalars().first()
 
     # Build refinement prompt
     context = f"""Current Article:
@@ -220,29 +313,40 @@ Maintain the article's factual accuracy while addressing the requested changes.
 Output the refined article as plain text with paragraphs."""
 
     # Generate refined article
+    # NOTE: gpt-5-mini is a reasoning model - does NOT support temperature parameter
+    # See GOTCHAS.md "gpt-5-mini Temperature Limitation" section
     client = AsyncOpenAI(api_key=openai_client.api_key)
     response = await client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-5-mini",
         messages=[{"role": "user", "content": refine_prompt}],
-        temperature=0.7,
-        max_tokens=2000
+        max_completion_tokens=2000
     )
 
     new_content = response.choices[0].message.content.strip()
+
+    # Extract title from refined content
+    new_title = None
+    lines = new_content.split('\n', 1)
+    if len(lines) > 0:
+        first_line = lines[0].strip()
+        if len(first_line) <= 200 and not first_line.startswith(('-', '*', '1.', '2.', '3.')):
+            new_title = first_line.strip('#').strip()
 
     # Update article in place (V-12: no multiple drafts)
     db.execute(
         update(GroupArticle)
         .where(GroupArticle.id == article.id)
-        .values(content=new_content)
+        .values(content=new_content, title=new_title)
     )
     db.commit()
+    db.refresh(article)
 
     return {
         "article": {
             "id": article.id,
             "group_id": article.group_id,
             "style": article.style,
+            "title": article.title,
             "content": new_content
         }
     }

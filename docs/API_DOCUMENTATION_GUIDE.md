@@ -248,53 +248,32 @@ async def post_to_teams(article_id: int, db: Session = Depends(get_db)):
 
 #### ✅ Improved (Clear Context)
 ```python
-@router.post("/{article_id}/post-to-teams")
-async def post_to_teams(
-    article_id: int = Path(
-        ...,
-        description="Database ID of the article to publish"
-    ),
-    db: Session = Depends(get_db)
-):
+# Teams API (backend/app/api/teams.py)
+
+@router.get("/channels")
+async def list_channels():
+    """Get configured Teams channels (names only, webhook URLs not exposed)"""
+
+@router.post("/send")
+async def send_article_to_teams(request: SendToTeamsRequest, db: Session = Depends(get_db)):
     """
-    Publish article to Microsoft Teams channel (Frontend → Backend → Teams Webhook)
+    Send article to specified Teams channel (multi-channel support)
 
-    Sends the generated article to your company's Teams channel using a webhook.
-    This is the final step in the workflow - making the news article visible to
-    the entire team.
-
-    **Use this when:**
-    - Article has been reviewed and approved
-    - Ready to share with the team
-
-    **What happens (backend flow):**
-    1. Fetch article from database
-    2. Format as Teams message card
-    3. POST to Teams webhook URL (from environment variable)
-    4. If successful, set `posted_to_teams` timestamp
-    5. Save timestamp to database
-
-    **Request:**
-    - Only requires article ID (no body needed)
+    **Request body:**
+    ```json
+    {
+      "articleId": "123",
+      "channelName": "neues-von-klaus"
+    }
+    ```
 
     **Response:**
-    - Success: `{"message": "Posted to Teams"}`
-    - Failure: `{"error": "Failed to post to Teams"}` or `{"error": "Article not found"}`
+    - Success: `{"success": true, "message": "Article sent to #channel-name"}`
+    - Failure: `{"success": false, "error": "Channel not found"}`
 
     **Important notes:**
-    - ⚠️ Can be called multiple times (no duplicate protection yet)
-    - ⚠️ Requires `TEAMS_WEBHOOK_URL` environment variable to be set
-    - ⏱️ Takes 1-3 seconds (Teams API call)
-
-    **After publishing:**
-    - Article's `posted_to_teams` field shows publication timestamp
-    - Visible in Teams channel immediately
-    - Team members can read/discuss in Teams
-
-    **Troubleshooting:**
-    - If fails, check TEAMS_WEBHOOK_URL is correct
-    - Verify webhook has permissions to post to channel
-    - Check Teams channel settings allow external webhooks
+    - Requires `TEAMS_CHANNELS` environment variable (JSON array)
+    - Takes 1-3 seconds (Teams API call)
     """
 ```
 

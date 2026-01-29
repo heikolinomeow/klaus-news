@@ -2,8 +2,8 @@
 
 ## Current Implementation Status
 
-**Status:** Core post browsing features fully functional, Settings complete, Research & Article Generation feature added (backend ready, UI incomplete)
-**Last Updated:** 2026-01-26
+**Status:** Core post browsing features fully functional, Settings complete, Microsoft Teams Integration feature added, Research & Article Generation feature added (backend ready, UI incomplete)
+**Last Updated:** 2026-01-27
 
 This document describes what users **CAN currently do** with Klaus News from a UX/UI/feature perspective, including detailed visual design, interaction patterns, and navigation structure.
 
@@ -448,6 +448,26 @@ The Category Filters section contains **three subsections**:
 - Name: 1-50 characters
 - Description: 1-300 characters
 
+---
+
+#### Send to Teams Modal (TeamsChannelModal)
+
+**Triggered by:** "Send to Teams" button on any group card
+
+**Modal Contents:**
+- **Header:** "Send to Microsoft Teams" with close button [X]
+- **Channel Selection:** Radio button list of configured channels (e.g., #general-news, #tech-updates)
+- **Article Preview:** Shows article title and summary excerpt
+- **Action Buttons:** [Cancel] and [Send to Teams]
+
+**Validation:**
+- At least one channel must be selected
+- Send button disabled during API call
+
+**Success/Error Feedback:**
+- Success toast: "Article sent to #channel-name"
+- Error toasts: "Failed to send. Please try again.", "Channel not found.", "Article not found."
+
 #### Category Mismatch Log Modal
 
 **Triggered by:** [View Log] button in Category Matching Stats
@@ -500,6 +520,31 @@ The Category Filters section contains **three subsections**:
 - ✅ Reset each prompt to defaults independently
 - ✅ All prompts displayed inline, no navigation required
 
+---
+
+#### Section 5: Microsoft Teams Integration (Collapsible)
+
+**Click header to expand/collapse**
+
+**What's Inside:**
+
+**Status Display:**
+- Shows list of configured Teams channels with connection status
+- Each channel displays name and "Connected" or "Error" status
+- Empty state shows warning: "No channels configured"
+
+**Test Connection:**
+- "Test All Connections" button validates all webhook URLs
+- Results shown inline with success/error indicators
+
+**Admin Info:**
+- Info message: "Channels are configured via environment variables. Contact your administrator to add or remove channels."
+
+**What Users Experience:**
+- View all configured Teams channels with status
+- Test channel connectivity via button
+- Understand that channel configuration requires admin access
+- Clear empty state when no channels are configured
 
 **Article Style Prompts (Four Presets):**
 
@@ -732,7 +777,10 @@ Each prompt is editable via Settings → Content tile → Articles section. Chan
    - **Right Box: Teams Integration**
      - Indigo border (#6366f1)
      - Dark indigo gradient background
-     - Text: "Publish articles to Microsoft Teams"
+     - Bullet list:
+       - Send individual articles to Teams channels
+       - Multi-channel support via TEAMS_CHANNELS env var
+       - Adaptive Card v1.4 format with article preview
 
 **Interaction:**
 - Each box has hover effect: border changes to blue, slight upward movement
@@ -825,7 +873,12 @@ Four filter controls side-by-side:
 **Technical Visibility:**
 - **X API Errors:** Previously silent 402 errors now visible with status code and response body
 - **Scheduler Jobs:** Start/completion of ingestion and archival jobs logged
-- **OpenAI Calls:** API calls with parameters and success/failure status
+- **OpenAI Calls:** All API calls logged with method name, model used, prompt snippet, response status, token counts, and error details
+  - **Common Errors Visible:**
+    - 401 Unauthorized: Invalid API key (must start with `sk-`)
+    - 400 Bad Request: Parameter errors (e.g., `max_tokens` → `max_completion_tokens`, unsupported temperature)
+    - 429 Rate Limited: Too many requests
+  - **Filter:** Use "External API" category to see only OpenAI-related logs
 - **Teams Posts:** Webhook posting attempts with results
 - **Database Operations:** Connection issues and query failures
 
@@ -1004,6 +1057,7 @@ Users can browse and explore AI-curated posts from X (Twitter):
 - Expand arrow to view underlying posts
 - "Write Article" button on group header (V-8)
 - "Archive" button on group header (V-9)
+- "Send to Teams" button on group header (V-4/V-18) - opens channel selection modal
 
 **Each Post Card Contains:**
 - **Title (H3):**
@@ -1024,6 +1078,10 @@ Users can browse and explore AI-curated posts from X (Twitter):
     - Format: "Score: 0.XX" (two decimal places)
     - Only shown if score exists
     - Styled with "post-score" class
+- **Send to Teams Button:**
+  - Blue secondary button style
+  - Disabled with tooltip "No Teams channels configured" if no channels
+  - Opens TeamsChannelModal when clicked (if channels configured)
 
 **Card Interaction:**
 - Entire card is clickable (onClick handler)
@@ -1232,7 +1290,6 @@ From a user perspective, the following experiences are not available:
 ❌ **Article Management**
 - Cannot view list of created articles
 - Cannot return to edit previously created articles
-- Cannot see which articles have been posted to Teams
 
 ❌ **Navigation**
 - Cannot move between different views
@@ -1357,6 +1414,14 @@ From a user perspective, the following experiences are not available:
 - Article editing/updating (API ready)
 - Article regeneration (API ready)
 - Teams webhook posting (API ready)
+
+**Microsoft Teams Integration (NEW):**
+- Send individual articles to configured Teams channels
+- Multi-channel selection via modal
+- Adaptive Card format with article preview
+- Connection testing from Settings page
+- Error handling with toast notifications
+- Webhook URL security (never exposed to frontend)
 
 ---
 
@@ -1975,4 +2040,4 @@ To achieve full user journey, the following UI work is needed:
 - 📊 Frontend: 70% complete (article UI is the primary remaining gap)
 - 🎨 Visual design: Fully implemented and documented
 - 🧭 Navigation: Partially complete (settings area done, article views missing)
-- 📝 Last Updated: 2026-01-26 - Updated OpenAI models to GPT-5 series (gpt-5.1, gpt-5-mini, gpt-5.2)
+- 📝 Last Updated: 2026-01-27 - Documented OpenAI API parameter requirements (max_completion_tokens, temperature limitations for gpt-5-mini)

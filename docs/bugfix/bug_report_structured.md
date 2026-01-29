@@ -3,49 +3,48 @@
 ## Source
 - Source-of-truth: docs/bug-report.md
 - Docs used:
-  - docs/USER_JOURNEY.md: Describes Settings UI for "Posts Per Fetch" control
-  - docs/TECH_OVERVIEW.md: Documents backend architecture and database schema
+  - docs/USER_JOURNEY.md: Describes Cooking workflow, TeamsChannelModal, article generation flow
+  - docs/TECH_OVERVIEW.md: Confirms GroupArticle model, Teams API endpoints, database schema
 
 ## Summary
-- One sentence: The "Posts Per Fetch" setting in Settings UI has no effect because x_client.py ignores the max_results parameter and always requests 5 posts from the X API.
-- Severity: **medium** (feature is non-functional but workaround exists via code change; no data loss or security impact)
+- One sentence: Article View on Cooking page is broken: content not rendered with markdown, CSS styles missing, and Teams integration queries wrong database table.
+- Severity: **blocker** - The article generation workflow is the core value proposition; article view is completely non-functional at final step.
 
 ## Environment
-- App/runtime: Python 3.11+ / FastAPI backend, React/TypeScript frontend
-- OS: TBD (Docker-based, platform-agnostic)
-- Node version: TBD (frontend)
+- App/runtime: React 18 + FastAPI (Python 3.11+) in Docker
+- OS: TBD (Docker containerized)
+- Node version: TBD (frontend container)
 - Browser: TBD (any modern browser)
-- GPU/renderer: N/A
+- GPU/renderer (if relevant): N/A
 - DB: PostgreSQL 15
-- Flags/env vars involved: `X_API_KEY`, `X_API_SECRET` (for X API calls)
+- Flags/env vars involved: TEAMS_CHANNELS env var for channel configuration
 
 ## Known-Good vs Known-Bad States
-- Known-Good (works when): N/A - setting has never worked per bug report
-- Known-Bad (fails when): User changes "Posts Per Fetch" value in Settings UI - the value is saved but ignored during ingestion
-- Smallest known scope where it fails: X API client function `fetch_posts_from_list()` in `x_client.py`
+- Known-Good (works when): Research view renders markdown correctly (line 570 uses `renderMarkdown()`)
+- Known-Bad (fails when): Article View displays content - content is raw text, no styling, Teams button fails
+- Smallest known scope where it fails: Article View section in Cooking.tsx (lines 384-419)
 
 ## Reproduction Steps (deterministic)
-1) Start the Klaus News application (backend + frontend + database)
-2) Navigate to `http://localhost:3000/settings/system`
-3) Expand the "Ingestion" section in the "System Control" tile (right column)
-4) Locate the "Posts Per Fetch" number input (default value: 5)
-5) Change the value to 20 (or any value different from 5)
-6) Observe the value saves (input blurs, no error message)
-7) Click "Trigger Ingestion Now" button (or wait for scheduled ingestion)
-8) Check database: `SELECT COUNT(*) FROM posts WHERE ingested_at > NOW() - INTERVAL '5 minutes'`
-9) Observe: Only 5 posts per list were fetched, not 20
+1) Start the application (`docker-compose up`)
+2) Navigate to Home page at `http://localhost:3000`
+3) Select a group and click "Start Cooking" → navigates to `/cooking`
+4) In Cooking page, run Research (any mode)
+5) Generate Article (any style)
+6) Observe Article View:
+   - BUG 1: Article content displays as raw text (no markdown formatting)
+   - BUG 2: Layout is broken with no proper styling (white background, no spacing)
+7) Click "Send to Teams" button
+   - BUG 3: Either shows "Article not found" error or sends wrong content
 
 ## Expected vs Actual
 - Expected:
-  - Changing "Posts Per Fetch" to 20 should cause the system to fetch 20 posts per X list
-  - The `max_results` parameter in X API requests should equal the configured value
-  - Both scheduled and manual ingestion should respect this setting
+  - Article content renders with markdown (headers, bold, lists, links styled)
+  - Article view has proper layout, spacing, dark theme styling
+  - "Send to Teams" sends the generated article content to Teams channel
 - Actual:
-  - The setting value is saved to the database correctly
-  - The scheduler reads the setting value correctly
-  - The scheduler passes the value to `fetch_posts_from_list()`
-  - BUT: `x_client.py` line 50 hardcodes `"max_results": 5` instead of using the passed parameter
-  - Result: Always 5 posts fetched regardless of setting
+  - Article content displays as raw unformatted text (line 387: `{article.content}`)
+  - All CSS classes are undefined (0 matches in App.css for article-view classes)
+  - "Send to Teams" queries Group/Post tables, never queries `group_articles` table
 
 ## Do Not Re-test (Confirmed Negatives / Ruled Out)
 None provided.
@@ -54,56 +53,65 @@ None provided.
 None provided.
 
 ## Current Hypothesis / Suspects (from bug-report)
-- Hypothesis: The `max_results` parameter in `x_client.py:fetch_posts_from_list()` is received but ignored when building the API request params.
+- Hypothesis: Three distinct code bugs causing the Article View to be broken
 - Suspects:
-  1) `backend/app/services/x_client.py` line 50: `"max_results": 5` is hardcoded instead of using the `max_results` function parameter
+  1) `Cooking.tsx:387` - `{article.content}` renders raw text instead of using `renderMarkdown()`
+  2) `App.css` - Six CSS classes used by Article View are completely missing
+  3) `teams_service.py:90-151` - `send_to_teams()` queries Group/Post tables but never queries `group_articles` table
 
 ## Scope and Blast Radius
-- Affected surfaces (USER_JOURNEY naming): Settings > System Control > Ingestion section > "Posts Per Fetch" subsection; Manual ingestion trigger; Scheduled automatic fetches
+- Affected surfaces (USER_JOURNEY naming): Cooking Page → Article View, Send to Teams Modal
 - Affected API routes (repo-verified):
-  - `PUT /api/settings/posts_per_fetch` (setting is saved correctly)
-  - `POST /api/admin/trigger-ingest` (manual trigger passes correct value but ignored)
+  - `POST /api/teams/send` → backend/app/api/teams.py → backend/app/services/teams_service.py
 - Affected data entities (repo-verified):
-  - `system_settings` table (`posts_per_fetch` key) - reads/writes work correctly
-  - `posts` table - receives fewer posts than configured
-  - `list_metadata` table - used during ingestion
+  - `GroupArticle` (backend/app/models/group_articles.py) - not queried by teams_service
+  - `Group` (backend/app/models/group.py) - incorrectly queried instead
+  - `Post` (backend/app/models/post.py) - incorrectly queried instead
 - What is NOT affected (explicit, from bug-report):
-  - Frontend UI (setting display and save works)
-  - Database persistence (value is stored correctly)
-  - Scheduler reading the setting (reads correctly)
-  - Scheduler passing the value (passes correctly)
+  - Research View (markdown rendering works there)
+  - Home page post browsing
+  - Settings page
 
 ## Repo Mapping (paths must be repo-verified)
-- Entry point(s): `backend/app/services/scheduler.py` (scheduled job), `backend/app/api/admin.py` (manual trigger)
-- Route/page/screen: `frontend/src/pages/Settings.tsx` (Settings UI)
+- Entry point(s): frontend/src/pages/Cooking.tsx
+- Route/page/screen: `/cooking` route
 - Components involved:
-  - `backend/app/services/x_client.py`: Contains the bug - line 50 hardcodes max_results
-  - `backend/app/services/scheduler.py`: Calls fetch_posts_from_list() with correct value at line 97-100
-  - `backend/app/services/settings_service.py`: Retrieves posts_per_fetch setting (works correctly)
-  - `backend/app/api/settings.py`: API for saving/reading settings (works correctly)
-- Rendering/engine layers (if relevant): N/A
-- Assets/shaders/materials (if relevant): N/A
+  - frontend/src/pages/Cooking.tsx:384-419 - Article View section with missing styles and raw content
+  - frontend/src/components/TeamsChannelModal.tsx - Modal that triggers send
+- Rendering/engine layers (if relevant):
+  - frontend/src/pages/Cooking.tsx:17-55 - `renderMarkdown()` function (exists but not used for article)
+- Backend services:
+  - backend/app/services/teams_service.py:90-151 - `send_to_teams()` queries wrong tables
+  - backend/app/api/teams.py - API endpoint that calls teams_service
+- Models:
+  - backend/app/models/group_articles.py - GroupArticle model (should be queried but is not)
+  - backend/app/models/group.py - Group model (incorrectly queried)
+  - backend/app/models/post.py - Post model (incorrectly queried)
+- Stylesheets:
+  - frontend/src/App.css - Missing CSS classes for article view
 
 ## Signals and Evidence
-- Error messages (verbatim if present): None - bug is silent (no errors thrown)
-- Logs to look for (where): Check scheduler logs for `posts_per_fetch` value being read; check X client logs for actual `max_results` used
-- Screenshots/video mentioned in bug-report: No
-- Telemetry/metrics (if any): `stats['posts_fetched']` in ingestion job tracks actual posts fetched
+- Error messages (verbatim if present):
+  - "Article not found" - when article_id doesn't match Group.id or Post.id
+  - Or: wrong content sent if article_id happens to match a Group/Post ID
+- Logs to look for (where): Backend logs for teams_service.py queries
+- Screenshots/video mentioned in bug-report: yes (user reported article shows only title, no content)
+- Telemetry/metrics (if any): None
 
 ## Constraints (from bug-report)
-- Must not break: Existing ingestion flow, X API authentication, since_id pagination
-- Must preserve behavior: Duplicate prevention via post_id check, category filtering, AI processing pipeline
-- Hard exclusions (from confirmed negatives): N/A
+- Must not break: Research View markdown rendering (currently works)
+- Must preserve behavior: renderMarkdown() function should remain unchanged
+- Hard exclusions: None specified
 
 ## Acceptance Criteria (human-checkable)
-- AC-1: Setting "Posts Per Fetch" to 20 in Settings UI results in `max_results=20` being sent to X API
-- AC-2: Scheduled automatic fetches respect the configured `posts_per_fetch` value
-- AC-3: Manual "Trigger Ingestion Now" respects the configured `posts_per_fetch` value
-- AC-4: Default behavior (no change to setting) still fetches 5 posts per list
+- AC-1: Article content displays with proper markdown formatting (headers, bold, italic, lists, links render correctly)
+- AC-2: Article view has proper layout and spacing with dark theme styling (background, borders, padding)
+- AC-3: "Send to Teams" successfully sends the generated article content (from group_articles table) to Teams channel
+- AC-4: Teams card shows correct article title and content summary
 - Regression guards:
-  - RG-1: X API `since_id` pagination must continue to work (prevents refetching)
-  - RG-2: Ingestion continues to process all AI steps (categorize, title, summary, scoring)
-  - RG-3: Settings API continues to validate value range (1-100)
+  - RG-1: Research output still renders markdown correctly (line 570 unchanged)
+  - RG-2: Existing CSS styles for other components remain unchanged
+  - RG-3: Teams API still validates channel exists before sending
 
 ## Open Questions
 - Needed: no
@@ -111,7 +119,7 @@ None provided.
 ## Chat Gate (MANDATORY)
 
 ```txt
-GATE: bf-0
+GATE: bf-1
 Written: docs/bugfix/bug_report_structured.md
 Questions needed: no
 ```

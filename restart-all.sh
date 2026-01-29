@@ -1,35 +1,65 @@
 #!/bin/bash
-# Unified restart script - restarts everything to pick up all changes
+# Nuclear restart script - completely resets and rebuilds everything
+set -e  # Exit on any error
 
-echo "🔄 Restarting Klaus News - Full Stack"
-echo "========================================"
+echo "🔄 Klaus News - Full Nuclear Reset"
+echo "===================================="
 
-# Stop all services
+# Stop and remove all containers
 echo ""
-echo "⏹️  Stopping all services..."
-docker-compose down
+echo "⏹️  Stopping and removing containers..."
+docker-compose down --remove-orphans
 
-# Rebuild frontend (force rebuild to pick up all changes)
+# Remove old images to force complete rebuild
 echo ""
-echo "🔨 Rebuilding frontend..."
-docker-compose build --no-cache frontend
+echo "🗑️  Removing old images..."
+docker rmi klaus-news-frontend klaus-news-backend 2>/dev/null || true
 
-# Rebuild backend (force rebuild to pick up all changes)
+# Clear build cache for clean builds
 echo ""
-echo "🔨 Rebuilding backend..."
-docker-compose build --no-cache backend
+echo "🧹 Clearing Docker build cache..."
+docker builder prune -f --filter "until=24h" 2>/dev/null || true
+
+# Rebuild frontend
+echo ""
+echo "🔨 Building frontend..."
+if ! docker-compose build --no-cache frontend; then
+    echo ""
+    echo "❌ Frontend build FAILED!"
+    echo "   Check the error above and fix before retrying."
+    exit 1
+fi
+
+# Rebuild backend
+echo ""
+echo "🔨 Building backend..."
+if ! docker-compose build --no-cache backend; then
+    echo ""
+    echo "❌ Backend build FAILED!"
+    echo "   Check the error above and fix before retrying."
+    exit 1
+fi
 
 # Start everything
 echo ""
 echo "▶️  Starting all services..."
 docker-compose up -d
 
-# Wait a moment for services to start
-sleep 3
+# Wait for services to be healthy
+echo ""
+echo "⏳ Waiting for services to start..."
+sleep 5
+
+# Verify containers are running
+echo ""
+if ! docker-compose ps | grep -q "Up"; then
+    echo "❌ Services failed to start!"
+    docker-compose logs --tail=20
+    exit 1
+fi
 
 # Show status
-echo ""
-echo "✅ All services restarted!"
+echo "✅ All services rebuilt and started successfully!"
 echo ""
 docker-compose ps
 
@@ -38,3 +68,5 @@ echo "🌐 Application available at:"
 echo "   Frontend: http://localhost:3000"
 echo "   Backend:  http://localhost:8000"
 echo "   API Docs: http://localhost:8000/docs"
+echo ""
+echo "💡 If browser shows old content, hard refresh with Cmd+Shift+R"

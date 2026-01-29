@@ -17,6 +17,7 @@ class GroupArticle(Base):
     prompt_used = Column(Text, nullable=False)  # The actual prompt used
 
     # Article content
+    title = Column(String, nullable=True)  # Article title (nullable for backwards compatibility)
     content = Column(Text, nullable=False)  # Plain text article
 
     # Timestamps

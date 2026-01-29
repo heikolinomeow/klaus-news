@@ -146,6 +146,42 @@
 **Behavior:** If AI miscategorizes a post, it won't be detected as duplicate of similar post in correct category
 **Mitigation:** Known trade-off; cross-category comparison would be significantly more expensive (API calls); current approach balances cost vs. accuracy
 
+### Teams Webhook URL Security
+**Issue:** TEAMS_CHANNELS webhook URLs are sensitive credentials
+**Risk:** Critical (9/10)
+**Behavior:** If exposed, anyone can post messages to Teams channels
+**Mitigation:** GET /api/teams/channels only returns channel names, never webhook URLs; URLs stored in env vars only; backend validates articleId and channelName
+
+### Microsoft Teams Rate Limits
+**Issue:** Teams incoming webhooks have rate limits (~4 messages/second)
+**Risk:** Medium (4/10)
+**Behavior:** High-volume sending may be throttled or rejected
+**Mitigation:** Current design is single-article send; bulk sending not implemented (V-23 out of scope); add delay if bulk feature added in future
+
+### Teams Channel Configuration
+**Issue:** Channels configured via environment variables require admin access
+**Risk:** Low (3/10)
+**Behavior:** End users cannot add/remove channels via UI
+**Mitigation:** Design decision per V-2; Settings page clearly explains admin configuration requirement; empty state guides users to contact admin
+
+### Invalid TEAMS_CHANNELS JSON
+**Issue:** Malformed JSON in TEAMS_CHANNELS env var breaks channel loading
+**Risk:** High (7/10)
+**Behavior:** GET /api/teams/channels returns error; Send to Teams button shows "No channels configured"
+**Mitigation:** Validate JSON structure on config load (V-22); each item must have `name` (string) and `webhookUrl` (string); log validation errors
+
+### Teams Webhook Errors Not Detailed
+**Issue:** Microsoft Teams webhooks return generic errors (200 OK or error)
+**Risk:** Low (3/10)
+**Behavior:** If Teams rejects message (e.g., malformed card), error is generic "Failed to send to Teams"
+**Mitigation:** Log full response in system_logs with external_api category; user sees simplified message per V-20; admin can debug via logs
+
+### Send to Teams Button Disabled State
+**Issue:** Button disabled when no channels configured; users may not understand why
+**Risk:** Low (2/10)
+**Behavior:** Tooltip explains "No Teams channels configured" on hover
+**Mitigation:** Settings page shows clear empty state with instructions; button tooltip provides immediate feedback
+
 ### Prompt Changes Immediate Effect
 **Issue:** Prompt edits take effect immediately without preview or staging
 **Risk:** Medium (5/10)
@@ -157,6 +193,217 @@
 **Risk:** Medium (4/10)
 **Behavior:** If user edits prompt and forgets original, must reset to default (loses custom tuning)
 **Mitigation:** Recommend exporting prompts before major changes; implement audit log in future
+
+## OpenAI API Integration
+
+### OpenAI Model Reference (January 2026)
+
+This section documents the current OpenAI model landscape and correct API usage patterns.
+
+#### GPT-5 Model Family
+
+| Model | Use Case | Context | Pricing (per 1M tokens) |
+|-------|----------|---------|------------------------|
+| `gpt-5` | General purpose, high capability | 400K total (272K input, 128K output) | $15 input / $60 output |
+| `gpt-5-mini` | Cost-effective reasoning | 400K total | $3 input / $12 output |
+| `gpt-5-nano` | Ultra-low cost, simple tasks | 400K total | $0.50 input / $2 output |
+| `gpt-5.1` | Improved coding/reasoning (recommended) | 400K total | $15 input / $60 output |
+| `gpt-5.2` | Latest frontier model, professional work | 400K total | $20 input / $80 output |
+| `gpt-5.2-codex` | Agentic coding (Codex environments only) | 400K total | API access coming soon |
+
+**Key Notes:**
+- GPT-5.1 is now the recommended general-purpose model (GPT-5 considered "previous generation")
+- GPT-5.2 adds `xhigh` reasoning effort level, concise reasoning summaries, and context compaction
+- GPT-5.2-Codex is specifically for agentic coding in Codex-like environments
+
+#### Search-Enabled Models (Responses API)
+
+| Model | Use Case | Web Search | Reasoning | Status |
+|-------|----------|------------|-----------|--------|
+| `gpt-5-search-api` | Quick web lookups | **BUILT-IN** | ❌ NOT supported | ⚠️ 500 errors (Jan 2026) |
+| `gpt-5-search-api-2026-10-14` | Dated snapshot | **BUILT-IN** | ❌ NOT supported | ⚠️ 500 errors (Jan 2026) |
+| `gpt-5.1` + web_search | Web search + reasoning | Via tool | ✅ Supported | ✅ Working |
+
+**⚠️ CRITICAL (January 2026): `gpt-5-search-api` is currently returning 500 Internal Server Errors.**
+
+Use `gpt-5.1` with `tools=[{"type": "web_search"}]` as a workaround:
+
+```python
+# ✅ RECOMMENDED - gpt-5.1 with web_search tool (WORKS)
+response = await client.responses.create(
+    model="gpt-5.1",
+    tools=[{"type": "web_search"}],
+    input=prompt
+)
+
+# ❌ BROKEN (Jan 2026) - gpt-5-search-api returns 500 errors
+response = await client.responses.create(
+    model="gpt-5-search-api",
+    input=prompt
+)
+```
+
+**Key limitations of `gpt-5-search-api` (when working):**
+1. Does NOT support `reasoning` parameter - returns: `"Unsupported parameter: 'reasoning.effort' is not supported with this model."`
+2. Does NOT support `tools` parameter - returns: `"Tool 'web_search_preview' is not supported with gpt-5-search-api."`
+3. It's a pure search model - "Google-like links provider with snippets" - not a reasoning model
+
+**For agentic search WITH reasoning, use gpt-5.1:**
+```python
+# ✅ CORRECT - gpt-5.1 with web_search AND reasoning
+response = await client.responses.create(
+    model="gpt-5.1",
+    tools=[{"type": "web_search"}],
+    reasoning={"effort": "medium"},
+    input=prompt
+)
+```
+
+#### o-Series Reasoning Models
+
+| Model | Use Case | Context | Pricing |
+|-------|----------|---------|---------|
+| `o4-mini` | Fast reasoning, math/coding | 200K | $2 input / $8 output |
+| `o4-mini-deep-research` | Multi-step research | 200K | $2 input / $8 output + search costs |
+| `o3` | Advanced reasoning | 200K | $10 input / $40 output |
+| `o3-deep-research` | Comprehensive research | 200K | $10 input / $40 output + search costs |
+
+**Deep Research Models:**
+- `o4-mini-deep-research` and `o3-deep-research` have web search **BUILT-IN**
+- Do NOT pass `tools=[{"type": "web_search"}]` - same error as search-api models
+- These models "always use web_search" internally
+- Recommended to run in "background" mode due to longer processing times
+
+**Correct Deep Research Usage:**
+```python
+# ✅ CORRECT
+response = await client.responses.create(
+    model="o4-mini-deep-research",
+    input=prompt
+)
+
+# Access results
+output = response.output_text
+citations = response.citations  # List of {url, title}
+```
+
+#### Chat Completions API vs Responses API
+
+**Chat Completions API** (`client.chat.completions.create`):
+- Traditional request/response pattern
+- Used for: titles, summaries, categorization, scoring
+- Does NOT support web search natively
+
+**Responses API** (`client.responses.create`):
+- Agentic loop supporting multiple tool calls per request
+- Used for: research, multi-step tasks
+- 40-80% better cache utilization vs Chat Completions
+- Supports: `web_search`, `file_search`, `code_interpreter`, `image_generation`, MCP servers
+
+**When to use which:**
+| Task | API | Model | Notes |
+|------|-----|-------|-------|
+| Generate title/summary | Chat Completions | gpt-4o, gpt-5.1 | |
+| Categorize posts | Chat Completions | gpt-5-mini | |
+| Score worthiness | Chat Completions | gpt-5-mini | |
+| Duplicate detection | Chat Completions | gpt-5-mini | |
+| Quick web research | Responses | gpt-5.1 + web_search | gpt-5-search-api broken (Jan 2026) |
+| Agentic research | Responses | gpt-5.1 + web_search + reasoning | gpt-5-search-api doesn't support reasoning |
+| Deep research | Responses | o4-mini-deep-research | |
+
+#### Adding Web Search to Non-Search Models
+
+For models that don't have native search (gpt-5, gpt-5.1, gpt-5.2), you CAN add web search:
+
+```python
+# ✅ CORRECT - web_search tool with NON-search models
+response = await client.responses.create(
+    model="gpt-5.1",  # Regular model, not search-api
+    tools=[{"type": "web_search"}],
+    input=prompt
+)
+```
+
+**Domain Filtering:**
+```python
+response = await client.responses.create(
+    model="gpt-5.1",
+    tools=[{
+        "type": "web_search",
+        "search_context_size": "medium",  # low, medium, high
+        "user_location": {
+            "type": "approximate",
+            "country": "US"
+        }
+    }],
+    input=prompt
+)
+```
+
+#### Reasoning Effort Levels
+
+For models that support reasoning (gpt-5, gpt-5.1, gpt-5.2, o-series - **NOT** gpt-5-search-api):
+
+| Level | Description | Latency | Use Case |
+|-------|-------------|---------|----------|
+| `none` | No reasoning (default for non-reasoning) | Fastest | Quick lookups |
+| `low` | Light reasoning | Fast | Simple analysis |
+| `medium` | Moderate reasoning | Moderate | Balanced research |
+| `high` | Deep reasoning | Slow | Complex analysis |
+| `xhigh` | Maximum reasoning (GPT-5.2+ only) | Slowest | Critical decisions |
+
+```python
+response = await client.responses.create(
+    model="gpt-5.1",
+    tools=[{"type": "web_search"}],
+    reasoning={"effort": "medium"},
+    input=prompt
+)
+```
+
+#### Response Parsing
+
+```python
+# Responses API returns different structure than Chat Completions
+response = await client.responses.create(...)
+
+# Get text output
+text = response.output_text
+
+# Get citations (for search-enabled responses)
+if hasattr(response, 'citations') and response.citations:
+    for citation in response.citations:
+        print(f"Source: {citation.url} - {citation.title}")
+```
+
+---
+
+### max_tokens vs max_completion_tokens Parameter
+**Issue:** Newer OpenAI models (gpt-5.1, gpt-5-mini, gpt-5.2) reject `max_tokens` parameter
+**Risk:** Critical (10/10) - All API calls fail with 400 Bad Request
+**Behavior:** OpenAI returns `"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead."`
+**Mitigation:** All OpenAI API calls must use `max_completion_tokens` instead of `max_tokens` for newer models; code updated in openai_client.py
+
+### gpt-5-mini Temperature Limitation
+**Issue:** gpt-5-mini is a reasoning model that only supports `temperature=1` (default)
+**Risk:** High (8/10) - API calls fail with 400 Bad Request if temperature is specified
+**Behavior:** OpenAI returns `"Unsupported value: 'temperature' does not support 0.3 with this model. Only the default (1) value is supported."`
+**Mitigation:** Temperature parameter is conditionally omitted for gpt-5-mini; use gpt-5.1 for tasks requiring temperature control (article generation, title generation)
+
+### OpenAI API Key Format Validation
+**Issue:** OpenAI API keys must start with `sk-` prefix
+**Risk:** High (8/10) - Authentication fails silently on ingestion
+**Behavior:** Keys with incorrect prefix (e.g., `ysk-p...`) return 401 Unauthorized; errors were previously not logged
+**Mitigation:** Verify API key format in .env; OpenAI errors now logged to System Logs with `external_api` category
+
+### OpenAI API Errors Now Visible
+**Issue:** Previously, OpenAI API failures during ingestion were silent (no visibility)
+**Risk:** Medium (5/10) - Debugging required container log inspection
+**Behavior:** All OpenAI API calls now log to `system_logs` table with `external_api` category
+**Visibility:** View in Settings → System Control → System Logs section; filter by "External API" category
+**Details Logged:** Method called, model used, response status, error messages, token counts
+
+---
 
 ## Article Generation
 

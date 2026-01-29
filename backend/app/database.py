@@ -28,10 +28,8 @@ def initialize_default_settings():
 
     db = SessionLocal()
     try:
-        # Check if settings already exist
-        existing = db.query(SystemSettings).first()
-        if existing:
-            return  # Already initialized
+        # Get existing setting keys to avoid overwriting
+        existing_keys = {s.key for s in db.query(SystemSettings.key).all()}
 
         # Insert default settings
         default_settings = [
@@ -70,6 +68,15 @@ def initialize_default_settings():
                 category='scheduling',
                 min_value=1.0,
                 max_value=100.0
+            ),
+            SystemSettings(
+                key='auto_fetch_enabled',
+                value='true',
+                value_type='bool',
+                description='Enable/disable automatic post fetching',
+                category='scheduling',
+                min_value=None,
+                max_value=None
             ),
             SystemSettings(
                 key='worthiness_threshold',
@@ -176,7 +183,8 @@ def initialize_default_settings():
         ]
 
         for setting in default_settings:
-            db.add(setting)
+            if setting.key not in existing_keys:
+                db.add(setting)
 
         db.commit()
     finally:

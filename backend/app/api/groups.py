@@ -1,7 +1,7 @@
 """Groups API endpoints (V-5)"""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Body
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.database import get_db
 from app.models.group import Group
@@ -13,9 +13,21 @@ router = APIRouter()
 @router.get("/")
 async def get_all_groups(db: Session = Depends(get_db)):
     """Get all active (non-archived) groups with representative titles and post counts (V-6)"""
-    groups = db.execute(
-        select(Group).where(Group.archived == False).order_by(Group.first_seen.desc())
-    ).scalars().all()
+    # Subquery to compute max worthiness per group
+    max_worthiness_subq = (
+        select(Post.group_id, func.max(Post.worthiness_score).label('max_worthiness'))
+        .group_by(Post.group_id)
+        .subquery()
+    )
+
+    # Query groups with max_worthiness via left join
+    stmt = (
+        select(Group, max_worthiness_subq.c.max_worthiness)
+        .outerjoin(max_worthiness_subq, Group.id == max_worthiness_subq.c.group_id)
+        .where(Group.archived == False)
+        .order_by(Group.first_seen.desc())
+    )
+    results = db.execute(stmt).all()
 
     return {"groups": [{
         "id": g.id,
@@ -24,9 +36,11 @@ async def get_all_groups(db: Session = Depends(get_db)):
         "category": g.category,
         "first_seen": g.first_seen.isoformat() if g.first_seen else None,
         "post_count": g.post_count,
+        "max_worthiness": max_w,
         "archived": g.archived,
-        "selected": g.selected
-    } for g in groups]}
+        "selected": g.selected,
+        "state": g.state or 'NEW'
+    } for g, max_w in results]}
 
 
 @router.get("/archived")
@@ -44,7 +58,8 @@ async def get_archived_groups(db: Session = Depends(get_db)):
         "first_seen": g.first_seen.isoformat() if g.first_seen else None,
         "post_count": g.post_count,
         "archived": g.archived,
-        "selected": g.selected
+        "selected": g.selected,
+        "state": g.state or 'NEW'
     } for g in groups]}
 
 
@@ -121,7 +136,7 @@ async def unarchive_group(group_id: int, db: Session = Depends(get_db)):
 @router.post("/{group_id}/transition")
 async def transition_group_state(
     group_id: int,
-    target_state: str,
+    target_state: str = Body(..., embed=True),
     db: Session = Depends(get_db)
 ):
     """Transition group to a new workflow state (V-3)

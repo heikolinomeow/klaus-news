@@ -53,9 +53,6 @@ class XClient:
             "user.fields": "username"
         }
 
-        # Add since_id to prevent refetching (X API native deduplication)
-        if since_id:
-            params["since_id"] = since_id
 
         async with httpx.AsyncClient() as client:
             response = await client.get(url, headers=headers, params=params)

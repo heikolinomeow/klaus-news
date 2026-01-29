@@ -14,9 +14,9 @@ function App() {
         <header className="App-header">
           <h1>Klaus News</h1>
           <nav>
-            <Link to="/">New</Link>
-            <Link to="/cooking">Cooking</Link>
-            <Link to="/settings/system">Settings</Link>
+            <Link to="/">📰 Menu</Link>
+            <Link to="/cooking">🍳 Cooking</Link>
+            <Link to="/settings/system">⚙️ Settings</Link>
           </nav>
         </header>
         <main>

@@ -20,7 +20,7 @@ def setup_logging():
     loggers_config = [
         ('klaus_news.x_client', 'external_api'),
         ('klaus_news.openai_client', 'external_api'),
-        ('klaus_news.teams_client', 'external_api'),
+        ('klaus_news.teams_service', 'external_api'),
         ('klaus_news.scheduler', 'scheduler'),
         ('klaus_news.api', 'api'),
         ('klaus_news.database', 'database'),

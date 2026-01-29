@@ -1,235 +1,322 @@
 # Bug Hunt (Paranoid)
 
 ## Re-statement of the Bug (from structured report)
-The "Posts Per Fetch" UI setting saves correctly to the database, is read correctly by the scheduler, and is passed correctly to `fetch_posts_from_list()`, but the X API client function ignores the parameter and hardcodes `max_results=5` in the API request params. Result: changing the setting has no effect on actual posts fetched.
+The Article View on the Cooking page is completely non-functional due to three distinct bugs:
+1. Article content renders as raw unformatted text instead of markdown
+2. Article View CSS classes are entirely missing from the stylesheet
+3. "Send to Teams" queries the wrong database tables and fails with "Article not found"
+
+This is a **blocker** because the article generation workflow is the core value proposition of the application - users cannot view, style, or distribute the articles they generate.
 
 ## Pinned Constraints (from structured report)
-- Known-Good states: N/A - setting has never worked per bug report
-- Known-Bad states: User changes "Posts Per Fetch" value in Settings UI - the value is saved but ignored during ingestion
-- Do Not Re-test (ruled out): None provided.
-- Attempt History (already tried): None provided.
+- **Known-Good states:** Research view renders markdown correctly (Cooking.tsx line 570 uses `renderMarkdown()` with `dangerouslySetInnerHTML`)
+- **Known-Bad states:** Article View displays content as raw text, no styling, Teams button fails with "Article not found"
+- **Do Not Re-test (ruled out):** None provided
+- **Attempt History (already tried):** None provided
 
 ## Repro Checkpoints (where to instrument mentally)
-- CP-1: Frontend saves `posts_per_fetch` to database via `PUT /api/settings/posts_per_fetch` (WORKS)
-- CP-2: `SettingsService.get('posts_per_fetch')` returns correct value in scheduler (WORKS)
-- CP-3: `x_client.fetch_posts_from_list()` receives correct `max_results` parameter (WORKS - logged at line 41)
-- CP-4: **BUG HERE** - `params` dict on line 50 hardcodes `"max_results": 5` instead of using the parameter
-- CP-5: X API receives `max_results=5` regardless of setting (BROKEN)
+- **CP-1:** Article content renders at Cooking.tsx:387 - diverges from expected (raw text vs markdown)
+- **CP-2:** CSS classes applied at Cooking.tsx:384-412 - diverges from expected (no styles applied)
+- **CP-3:** Teams API called at Cooking.tsx:285 with `article.id` - trace to backend
+- **CP-4:** Backend receives `article_id` at teams_service.py:90 - check what table is queried
+- **CP-5:** Database query at teams_service.py:115 and 137 - query goes to wrong tables
 
 ## Hypotheses (exhaustive list)
 
-### H-1: Hardcoded max_results in params dict (PRIMARY SUSPECT)
-- Status: **ACTIVE**
-- Likelihood: **high** (99% certainty)
-- Evidence:
-  - File(s): `backend/app/services/x_client.py`
-  - Anchor(s): Line 50: `"max_results": 5,` - hardcoded value in params dict
-  - Anchor(s): Line 26: `async def fetch_posts_from_list(self, list_id: str, max_results: int = 100, since_id: str = None)` - parameter defined but unused
-  - Anchor(s): Line 41: `'max_results': max_results,` - correct value LOGGED but not USED in params
-- Failure mechanism: The function signature accepts `max_results` and logs it, but the params dict constructed on lines 49-54 hardcodes `5` instead of using the variable.
-- Disproof test: Change line 50 from `"max_results": 5,` to `"max_results": max_results,` - if bug is fixed, this is root cause
-- Related side effects: None for this fix; it's an isolated one-line change
+### H-1: Article content rendered without markdown conversion
+- **Status:** ACTIVE
+- **Likelihood:** high (confirmed)
+- **Evidence:**
+  - File(s): `frontend/src/pages/Cooking.tsx`
+  - Anchor(s):
+    - Line 387: `<div className="article-text">{article.content}</div>` (renders raw)
+    - Line 570: `dangerouslySetInnerHTML={{ __html: renderMarkdown(research.edited_output || research.original_output) }}` (renders markdown)
+- **Failure mechanism:** Article content bypasses the `renderMarkdown()` function that exists on lines 17-55 of the same file. Content is interpolated directly as text, not converted to HTML.
+- **Disproof test:** Add `console.log(typeof article.content, article.content.substring(0,100))` at line 386 to confirm content is plain string with markdown syntax
+- **Related side effects:** Any markdown in article (headers, bold, links) will show as literal characters (`# Title` instead of `<h1>Title</h1>`)
 
-### H-2: Settings cache serving stale value
-- Status: **ACTIVE** (but low probability given primary suspect)
-- Likelihood: **low**
-- Evidence:
-  - File(s): `backend/app/services/settings_service.py`
-  - Anchor(s): Line 14-15: `_cache: dict[str, tuple[Any, datetime]] = {}` and `_cache_expiry_seconds = 60`
-  - Anchor(s): Lines 32-35: Cache check uses 60-second expiry
-- Failure mechanism: If settings were cached too long, scheduler might read old value. However, 60-second expiry is reasonable and cache is invalidated on update (line 156 of settings.py).
-- Disproof test: Add logging inside `SettingsService.get()` to print actual value retrieved for `posts_per_fetch`. If value matches UI setting, cache is fine.
-- Related side effects: Would affect ALL settings, not just posts_per_fetch
+### H-2: Article View CSS classes completely missing from stylesheet
+- **Status:** ACTIVE
+- **Likelihood:** high (confirmed)
+- **Evidence:**
+  - File(s): `frontend/src/App.css`, `frontend/src/pages/Cooking.tsx`
+  - Anchor(s):
+    - Grep for `cooking-article|cooking-refine|article-text` in App.css: "No matches found"
+    - Line 384: `className="cooking-article-view"` - NO CSS DEFINITION
+    - Line 385: `className="cooking-article-content"` - NO CSS DEFINITION
+    - Line 387: `className="article-text"` - NO CSS DEFINITION
+    - Line 390: `className="cooking-refine-section"` - NO CSS DEFINITION
+    - Line 396: `className="cooking-refine-input"` - NO CSS DEFINITION
+    - Line 412: `className="cooking-article-actions"` - NO CSS DEFINITION
+- **Failure mechanism:** CSS classes are used in JSX but never defined in the stylesheet. Browser applies no styling, resulting in unstyled white-background layout.
+- **Disproof test:** Browser DevTools → Elements → Select `.article-text` element → Computed tab shows no matched rules
+- **Related side effects:** White background, no spacing, no dark theme, broken layout, illegible content
 
-### H-3: Frontend sends wrong value type
-- Status: **ACTIVE** (but low probability)
-- Likelihood: **low**
-- Evidence:
-  - File(s): `frontend/src/pages/Settings.tsx`
-  - Anchor(s): Line 719: `onBlur={() => updateSetting('posts_per_fetch', postsPerFetch.toString())}`
-  - File(s): `frontend/src/contexts/SettingsContext.tsx`
-  - Anchor(s): Lines 91-95: `stringValue = String(value);` conversion before API call
-- Failure mechanism: Type coercion could theoretically lose precision, but `toString()` on an integer is safe.
-- Disproof test: Check database directly: `SELECT value FROM system_settings WHERE key='posts_per_fetch'` - if value matches what user entered, frontend is fine.
-- Related side effects: Would affect other numeric settings if true
+### H-3: teams_service.py queries wrong database tables
+- **Status:** ACTIVE
+- **Likelihood:** high (confirmed)
+- **Evidence:**
+  - File(s): `backend/app/services/teams_service.py`
+  - Anchor(s):
+    - Line 95-97: `from sqlalchemy import select` + `from app.models.post import Post` + `from app.models.group import Group` (imports Post/Group, NOT GroupArticle)
+    - Line 115: `select(Group).where(Group.id == int(article_id))` (queries groups table)
+    - Line 137: `select(Post).where(Post.id == int(article_id))` (queries posts table)
+    - Line 90: `async def send_to_teams(article_id: str, channel_name: str, db) -> dict:` (receives article_id)
+- **Failure mechanism:** Frontend passes `GroupArticle.id` but backend queries `Group` and `Post` tables. Since IDs don't match (different tables), query returns None → "Article not found" error.
+- **Disproof test:** Add logging at line 112: `logger.info(f"Looking for article_id={article_id} in Group table")` - will show mismatched lookup
+- **Related side effects:** Even if ID coincidentally matches (e.g., article_id=1 exists in both), wrong content would be sent (Post.ai_summary instead of GroupArticle.content)
 
-### H-4: Database validation rejecting/clamping values
-- Status: **ACTIVE** (but low probability)
-- Likelihood: **low**
-- Evidence:
-  - File(s): `backend/app/api/settings.py`
-  - Anchor(s): Lines 91-99: Numeric range validation for int/float types
-  - Anchor(s): Lines 94-97: Validates against `min_value` and `max_value` (1-100 for posts_per_fetch)
-  - File(s): `backend/app/database.py`
-  - Anchor(s): Lines 66-72: Default setting `min_value=1.0, max_value=100.0`
-- Failure mechanism: Value outside 1-100 would be rejected with HTTP 400, not silently clamped.
-- Disproof test: Try setting value to 20 (within range) and check database. If stored as 20, validation is fine.
-- Related side effects: None - explicit error would be raised
+### H-4: Two incompatible Article models in codebase
+- **Status:** ACTIVE
+- **Likelihood:** high (confirmed)
+- **Evidence:**
+  - File(s): `backend/app/models/article.py`, `backend/app/models/group_articles.py`
+  - Anchor(s):
+    - article.py line 10: `__tablename__ = "articles"` with `posted_to_teams` field (line 26)
+    - group_articles.py line 9: `__tablename__ = "group_articles"` WITHOUT `posted_to_teams` field
+- **Failure mechanism:** Old `Article` model (single-post based) coexists with new `GroupArticle` model (group-based). `teams_service.py` was written for old model but Cooking page uses new model. Schema mismatch causes lookups to fail.
+- **Disproof test:** Run `SELECT * FROM articles; SELECT * FROM group_articles;` to see both tables exist independently
+- **Related side effects:** No way to track if GroupArticle was sent to Teams (missing `posted_to_teams` column); potential for duplicate sends
 
-### H-5: Scheduler creates new SettingsService instance that doesn't see update
-- Status: **ACTIVE** (but low probability)
-- Likelihood: **low**
-- Evidence:
-  - File(s): `backend/app/services/scheduler.py`
-  - Anchor(s): Line 70: `settings_svc = SettingsService(db)` - creates fresh instance per job run
-  - File(s): `backend/app/services/settings_service.py`
-  - Anchor(s): Line 14: `_cache: dict[str, tuple[Any, datetime]] = {}` - CLASS-level cache (shared across instances)
-- Failure mechanism: Cache is at class level, so all instances share it. This is actually correct behavior.
-- Disproof test: Log output of `settings_svc.get('posts_per_fetch')` in scheduler - if it returns correct value, this is not the issue.
-- Related side effects: Would affect all settings read in scheduler
+### H-5: Frontend passes GroupArticle.id but backend expects different ID type
+- **Status:** ACTIVE
+- **Likelihood:** high
+- **Evidence:**
+  - File(s): `frontend/src/pages/Cooking.tsx`, `frontend/src/services/api.ts`
+  - Anchor(s):
+    - Cooking.tsx line 285: `await teamsApi.sendToTeams(String(article.id), channelName)`
+    - api.ts line 140-143: `sendToTeams: (articleId: string, channelName: string) => apiClient.post<...>('/api/teams/send', { articleId, channelName })`
+- **Failure mechanism:** `article` state is typed as `GroupArticle` (see line 77). Its `id` field is `GroupArticle.id`. Backend never queries `group_articles` table.
+- **Disproof test:** Add `console.log('Sending article.id:', article.id, 'article:', article)` before line 285 - will show GroupArticle properties
+- **Related side effects:** API silently fails with 200 status but `success: false`
 
-### H-6: X API has minimum max_results constraint we're not aware of
-- Status: **ACTIVE** (informational - not the bug, but relevant)
-- Likelihood: **low** (for being the bug)
-- Evidence:
-  - File(s): External - X API documentation
-  - Anchor(s): NO EVIDENCE FOUND (hypothesis only) - X API v2 typically supports max_results from 10-100
-- Failure mechanism: If X API has constraints (e.g., min 10), setting 5 might be forced lower. But even if true, this would mean ANY value we pass would be constrained, so the fix is still to use the parameter.
-- Disproof test: Check X API docs or test with value 50 - if X returns 50, no API constraint.
-- Related side effects: X API rate limits apply per call regardless of count
+### H-6: renderMarkdown function exists but not used for articles
+- **Status:** ACTIVE
+- **Likelihood:** high (confirmed)
+- **Evidence:**
+  - File(s): `frontend/src/pages/Cooking.tsx`
+  - Anchor(s):
+    - Line 18: `function renderMarkdown(text: string): string {` (function exists)
+    - Line 570: Only usage is for research: `__html: renderMarkdown(research.edited_output || research.original_output)`
+    - Line 387: Article uses plain interpolation: `{article.content}`
+- **Failure mechanism:** Developer implemented renderMarkdown for research but forgot to use it for article content.
+- **Disproof test:** Search codebase for `renderMarkdown(article` - will return 0 matches
+- **Related side effects:** Inconsistent UX - research view looks good, article view looks broken
 
-### H-7: Multiple XClient instances with different states
-- Status: **ACTIVE** (but very low probability)
-- Likelihood: **very low**
-- Evidence:
-  - File(s): `backend/app/services/x_client.py`
-  - Anchor(s): Line 132: `x_client = XClient()` - single global instance
-  - File(s): `backend/app/services/scheduler.py`
-  - Anchor(s): Line 45: `from app.services.x_client import x_client` - imports singleton
-- Failure mechanism: Only one instance exists. No state is stored for max_results anyway.
-- Disproof test: Already confirmed by code inspection - singleton pattern used.
-- Related side effects: None
+### H-7: GroupArticle model missing posted_to_teams tracking field
+- **Status:** ACTIVE
+- **Likelihood:** medium
+- **Evidence:**
+  - File(s): `backend/app/models/group_articles.py`, `backend/app/models/article.py`
+  - Anchor(s):
+    - article.py line 26: `posted_to_teams = Column(DateTime)` (old model has it)
+    - group_articles.py: No `posted_to_teams` field defined (grep returns "No matches found")
+- **Failure mechanism:** Even if Teams send is fixed, there's no field to track whether GroupArticle was sent, enabling duplicate sends and preventing status display in UI.
+- **Disproof test:** `\d group_articles` in psql - column list won't include posted_to_teams
+- **Related side effects:** Cannot show "Already sent to Teams" badge, cannot prevent duplicate sends
 
-### H-8: test_list_connectivity using hardcoded max_results=1
-- Status: **ACTIVE** (tangential issue - not the main bug)
-- Likelihood: **N/A** (separate issue)
-- Evidence:
-  - File(s): `backend/app/services/x_client.py`
-  - Anchor(s): Line 120: `posts = await self.fetch_posts_from_list(list_id, max_results=1)`
-- Failure mechanism: This is intentional for testing (only need 1 post to verify connectivity). However, it ALSO would be affected by the hardcoded bug - passing 1 but getting 5.
-- Disproof test: N/A - different code path, intentionally different behavior
-- Related side effects: Test connectivity fetches 5 posts instead of 1 (wasteful but not harmful)
+### H-8: Inconsistent data flow between old and new article systems
+- **Status:** ACTIVE
+- **Likelihood:** medium
+- **Evidence:**
+  - File(s): `frontend/src/services/api.ts`
+  - Anchor(s):
+    - Line 24-30: `articlesApi` operates on `/api/articles/` endpoint (old Article model)
+    - Line 115-122: `groupArticlesApi` operates on `/api/groups/{id}/article/` endpoint (new GroupArticle model)
+- **Failure mechanism:** Two parallel article systems exist. Frontend has both APIs but they're not interchangeable. Cooking page uses `groupArticlesApi` but Teams flow may be confused about which article type to use.
+- **Disproof test:** Compare article structures returned by each API - will have different fields
+- **Related side effects:** Confusion about which API to use, potential for using wrong API in future features
 
-### H-9: Environment variable override for max_results
-- Status: **ACTIVE** (but no evidence)
-- Likelihood: **very low**
-- Evidence:
-  - File(s): `backend/app/config.py`
-  - Anchor(s): No `max_results` env var defined in Settings class (lines 5-27)
-- Failure mechanism: No env var mechanism exists for max_results. Not the cause.
-- Disproof test: Already confirmed by code inspection - no such env var exists.
-- Related side effects: None
+### H-9: Teams adaptive card uses wrong article fields
+- **Status:** ACTIVE
+- **Likelihood:** medium
+- **Evidence:**
+  - File(s): `backend/app/services/teams_service.py`
+  - Anchor(s):
+    - Line 51-52: `title = article.get("title", article.get("ai_title", "Untitled"))` and `summary = article.get("summary", article.get("ai_summary", ""))`
+    - GroupArticle model only has `content` field, not `title` or `summary`
+- **Failure mechanism:** build_adaptive_card expects `title` and `summary` keys, but GroupArticle only has `content`. Even if query is fixed, card building will use wrong/empty fields.
+- **Disproof test:** Examine GroupArticle schema - has `style`, `prompt_used`, `content` but NOT `title` or `summary`
+- **Related side effects:** Teams card would show "Untitled" and empty summary even with correct article data
 
-### H-10: Hot reload / module caching in development
-- Status: **ACTIVE** (but unlikely given clear evidence)
-- Likelihood: **very low**
-- Evidence:
-  - File(s): Development environment
-  - Anchor(s): NO EVIDENCE FOUND (hypothesis only)
-- Failure mechanism: If dev server caches old module, changes might not apply. But this wouldn't explain hardcoded literal in source.
-- Disproof test: Restart backend container completely, test again.
-- Related side effects: Would affect any code changes
+### H-10: Article content may contain unescaped markdown that's unsafe when raw
+- **Status:** ACTIVE
+- **Likelihood:** low
+- **Evidence:**
+  - File(s): `frontend/src/pages/Cooking.tsx`
+  - Anchor(s):
+    - Line 387: `{article.content}` - React escapes this by default
+    - Line 21-25 in renderMarkdown: Escapes `&`, `<`, `>` to HTML entities
+- **Failure mechanism:** While React escapes the content preventing XSS, the visual output is garbled with literal markdown syntax showing. Not a security issue, but UX issue.
+- **Disproof test:** Generate article with markdown, view shows `**bold**` literally instead of **bold**
+- **Related side effects:** None beyond broken display
 
-### H-11: Shadowed variable name
-- Status: **ACTIVE** (confirmed NOT present)
-- Likelihood: **none** (ruled out by inspection)
-- Evidence:
-  - File(s): `backend/app/services/x_client.py`
-  - Anchor(s): Line 26 defines `max_results` parameter, no redefinition before line 50
-- Failure mechanism: If a local variable shadowed the parameter, it could explain the issue. Inspection confirms no shadowing.
-- Disproof test: N/A - already confirmed by inspection.
-- Related side effects: None
+### H-11: Research view styling exists but article view styling doesn't
+- **Status:** ACTIVE
+- **Likelihood:** high (confirmed)
+- **Evidence:**
+  - File(s): `frontend/src/App.css`
+  - Anchor(s):
+    - Lines 1542-2304: Extensive `.research-*` CSS classes defined (over 60 rules)
+    - Search for `.cooking-article-*`: 0 matches
+- **Failure mechanism:** Developer created comprehensive styles for research view but never created equivalent styles for article view. Copy-paste omission or incomplete feature implementation.
+- **Disproof test:** Compare CSS line count: `grep -c "\.research-" App.css` vs `grep -c "\.cooking-article-" App.css`
+- **Related side effects:** Stark visual inconsistency between research and article views
 
-### H-12: Typo or copy-paste error when building params
-- Status: **ACTIVE** (this IS the root cause, reframing H-1)
-- Likelihood: **high** (certain)
-- Evidence:
-  - File(s): `backend/app/services/x_client.py`
-  - Anchor(s): Line 50: `"max_results": 5,` - developer likely copy-pasted from example/docs or wrote quick prototype
-  - Anchor(s): Line 41: `'max_results': max_results,` - CORRECT usage in logging shows developer knew to use variable
-- Failure mechanism: Classic oversight: log statement uses variable correctly, but actual params dict uses literal.
-- Disproof test: Fix line 50 to use variable.
-- Related side effects: None
+### H-12: Article state in Cooking.tsx may be stale after Teams send
+- **Status:** ACTIVE
+- **Likelihood:** low
+- **Evidence:**
+  - File(s): `frontend/src/pages/Cooking.tsx`
+  - Anchor(s):
+    - Line 286-288: On success, only shows alert and closes modal - doesn't refresh article state
+- **Failure mechanism:** After sending to Teams, UI doesn't update to reflect the action. If `posted_to_teams` field existed and was set, local state wouldn't reflect it.
+- **Disproof test:** Send to Teams → Check if any state update occurs (it doesn't)
+- **Related side effects:** User can click "Send to Teams" multiple times; no visual indication of successful send
+
+### H-13: teamsApi.sendToTeams returns 200 with error in body
+- **Status:** ACTIVE
+- **Likelihood:** medium
+- **Evidence:**
+  - File(s): `backend/app/api/teams.py`
+  - Anchor(s):
+    - Line 38-40: `if not result.get("success"): pass` - returns 200 even on failure
+    - Comment at line 39: `# Return 200 with success=false per spec (not HTTP error)`
+- **Failure mechanism:** Frontend may not properly handle non-HTTP errors. Returns `{success: false, error: "Article not found"}` as 200 OK.
+- **Disproof test:** Network tab shows 200 status but response body has `success: false`
+- **Related side effects:** Error handling must check response body, not HTTP status
+
+### H-14: Copy to clipboard gets raw markdown instead of rendered text
+- **Status:** ACTIVE
+- **Likelihood:** low
+- **Evidence:**
+  - File(s): `frontend/src/pages/Cooking.tsx`
+  - Anchor(s):
+    - Line 274-278: `navigator.clipboard.writeText(article.content)`
+- **Failure mechanism:** Copies raw markdown to clipboard. User pastes `# Title\n\n**bold**` instead of formatted text.
+- **Disproof test:** Click "Copy to Clipboard" → paste into text editor → see raw markdown
+- **Related side effects:** May actually be desired behavior for some users who want markdown
+
+### H-15: Article refinement doesn't update UI with new content visually
+- **Status:** ACTIVE
+- **Likelihood:** low
+- **Evidence:**
+  - File(s): `frontend/src/pages/Cooking.tsx`
+  - Anchor(s):
+    - Line 264: `setArticle(response.data)` - updates state correctly
+    - Line 387: But display still uses `{article.content}` raw - even refined content shows raw
+- **Failure mechanism:** Even though state updates correctly, the raw text display means refined content still appears unformatted.
+- **Disproof test:** Refine article → observe content updates but still shows markdown syntax literally
+- **Related side effects:** All the same as H-1
 
 ## Suspicious Code Map
 
-- `backend/app/services/x_client.py:50`: **THE BUG** - hardcoded `"max_results": 5` instead of using `max_results` parameter
-  - Anchor: `"max_results": 5,`
+- **frontend/src/pages/Cooking.tsx:387**: Article renders raw text
+  - Anchor: `<div className="article-text">{article.content}</div>`
+  - Should use: `<div className="article-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(article.content) }} />`
 
-- `backend/app/services/x_client.py:26`: Function signature accepts parameter that is never used
-  - Anchor: `async def fetch_posts_from_list(self, list_id: str, max_results: int = 100, since_id: str = None)`
+- **frontend/src/pages/Cooking.tsx:384-412**: Uses 6 undefined CSS classes
+  - Anchor: `className="cooking-article-view"`, `className="cooking-article-content"`, `className="article-text"`, `className="cooking-refine-section"`, `className="cooking-refine-input"`, `className="cooking-article-actions"`
+  - Should have: Corresponding CSS definitions in App.css
 
-- `backend/app/services/x_client.py:41`: Log statement correctly uses variable (shows intended usage)
-  - Anchor: `'max_results': max_results,`
+- **backend/app/services/teams_service.py:95-97**: Wrong model imports
+  - Anchor: `from app.models.post import Post` + `from app.models.group import Group`
+  - Should import: `from app.models.group_articles import GroupArticle`
 
-- `backend/app/services/x_client.py:120`: test_list_connectivity hardcodes max_results=1 (intentional but also affected by bug)
-  - Anchor: `posts = await self.fetch_posts_from_list(list_id, max_results=1)`
+- **backend/app/services/teams_service.py:115**: Queries Group instead of GroupArticle
+  - Anchor: `select(Group).where(Group.id == int(article_id))`
+  - Should query: `select(GroupArticle).where(GroupArticle.id == int(article_id))`
+
+- **backend/app/services/teams_service.py:51-52**: Expects wrong fields from article
+  - Anchor: `title = article.get("title", article.get("ai_title", "Untitled"))` + `summary = article.get("summary", article.get("ai_summary", ""))`
+  - Should use: GroupArticle fields or parse title from content
+
+- **backend/app/models/group_articles.py**: Missing posted_to_teams field
+  - Anchor: (absence of field)
+  - Should have: `posted_to_teams = Column(DateTime, nullable=True)`
 
 ## Non-obvious Failure Modes Checklist
 
-- Race/ordering issues: **Not applicable** - single-threaded request processing, no concurrent writes to same param
-- Caching/staleness: **Checked** - SettingsService has 60s cache with invalidation on update; not the cause
-- Streaming edge cases: **Not applicable** - X API returns JSON, not streaming
-- Idempotency collisions: **Not applicable** - no state collisions in fetch operation
-- State mismatch (client vs server): **Not applicable** - no client state involved
-- Timezone/time parsing: **Not applicable** - bug is in integer parameter, not time
-- Env var mismatches: **Checked** - no env var for max_results; not the cause
-- Dev hot reload pitfalls: **Unlikely** - bug is in source code literal, would persist across reloads
-- "Works locally only" traps: **Not applicable** - same code runs everywhere, same hardcoded value
+- **Race/ordering issues:** TBD - potential race if user clicks "Send to Teams" before article generation completes (button should be disabled but verify)
+- **Caching/staleness:** N/A for this bug - no caching involved in article display
+- **Streaming edge cases:** N/A - article content is complete before display
+- **Idempotency collisions:** YES - no `posted_to_teams` tracking means duplicate Teams sends possible
+- **State mismatch (client vs server):** YES - after Teams send, client state doesn't reflect server changes
+- **Timezone/time parsing:** N/A for this bug
+- **Env var mismatches:** N/A - TEAMS_CHANNELS parsing works per teams_service.py:11-26
+- **Dev hot reload pitfalls:** N/A
+- **"Works locally only" traps:** N/A - this bug manifests in all environments
 
 ## Debugging Experiments (minimal, high-signal)
 
-- EXP-1: Add temporary log inside params construction
-  - Where: `backend/app/services/x_client.py` line 49 (before params dict)
-  - Code: `logger.info(f"DEBUG: Building params with max_results={max_results}")`
-  - Expected signal if H-1 true: Log shows correct max_results value (e.g., 20), but X API only returns 5 posts
-  - Expected signal if H-1 false: Log shows max_results=5 (would indicate parameter never reached function)
+- **EXP-1:** Confirm article content is markdown string
+  - Where: `frontend/src/pages/Cooking.tsx`, add before line 387
+  - Log: `console.log('Article content preview:', article.content?.substring(0, 200))`
+  - Expected signal if true: Shows markdown syntax like `# Title` or `**bold**`
+  - Expected signal if false: Shows plain text with no special characters
 
-- EXP-2: Direct database check for stored setting
-  - Where: PostgreSQL database
-  - Code: `SELECT key, value FROM system_settings WHERE key='posts_per_fetch';`
-  - Expected signal if frontend works: Value matches what user set (e.g., "20")
-  - Expected signal if frontend broken: Value is "5" or corrupted
+- **EXP-2:** Confirm CSS classes have no matched rules
+  - Where: Browser DevTools on `/cooking` page
+  - Action: Inspect `.cooking-article-view` element → Styles panel
+  - Expected signal if true: No CSS rules matched (only user-agent styles)
+  - Expected signal if false: Custom styles visible
 
-- EXP-3: Inspect X API request in network logs
-  - Where: Backend stdout/stderr or structured logs
-  - Code: Enable httpx debug logging or add `logger.info(f"X API request params: {params}")` after line 54
-  - Expected signal if H-1 true: Logs show `max_results=5` in actual request
-  - Expected signal if fix correct: Logs show `max_results=20` (or configured value)
+- **EXP-3:** Confirm article_id lookup target
+  - Where: `backend/app/services/teams_service.py`, add after line 112
+  - Log: `logger.info(f"send_to_teams: received article_id={article_id}, querying Group table")`
+  - Expected signal if true: Log shows GroupArticle ID being searched in Group table
+  - Expected signal if false: Would never reach this code if GroupArticle was queried
+
+- **EXP-4:** Verify GroupArticle table structure
+  - Where: Database shell
+  - Query: `\d group_articles` or `SELECT column_name FROM information_schema.columns WHERE table_name = 'group_articles';`
+  - Expected signal if true: No `posted_to_teams` column present
+  - Expected signal if false: Column exists (would disprove H-7)
+
+- **EXP-5:** Compare research vs article rendering path
+  - Where: Browser → View Source or React DevTools
+  - Action: Find research output element vs article element in DOM
+  - Expected signal if true: Research has `<div dangerouslySetInnerHTML...>` with HTML; Article has plain text node
+  - Expected signal if false: Both use same rendering approach
 
 ## Smells (not necessarily the bug, but relevant debt)
 
-- S-1: Unused parameter with misleading default
-  - Path: `backend/app/services/x_client.py`
-  - Anchor: `async def fetch_posts_from_list(self, list_id: str, max_results: int = 100, since_id: str = None)`
-  - Why it matters: Default is `100` but hardcoded value is `5`. Even if fixed, the default of 100 is misleading since DB default is 5. Should align defaults or remove default from function.
+- **S-1:** Two parallel Article model systems
+  - Path: `backend/app/models/article.py` vs `backend/app/models/group_articles.py`
+  - Anchor: `class Article(Base)` vs `class GroupArticle(Base)`
+  - Why it matters: Architectural debt. Old post-based Article system coexists with new group-based GroupArticle system. Causes confusion, leads to bugs like this one where code references wrong model.
 
-- S-2: Inconsistent logging of actual vs intended
-  - Path: `backend/app/services/x_client.py`
-  - Anchor: Line 41 logs `max_results` parameter, but line 85-88 logs actual `post_count` returned
-  - Why it matters: Gap between "intended to fetch" and "actually requested" is not visible in logs. After fix, consider logging actual params sent.
+- **S-2:** Duplicate API surfaces for articles
+  - Path: `frontend/src/services/api.ts`
+  - Anchor: `articlesApi` (lines 24-30) vs `groupArticlesApi` (lines 115-122)
+  - Why it matters: Two APIs doing similar things. Easy to call wrong one. Should consolidate or clearly deprecate old API.
 
-- S-3: Print statement instead of logger
-  - Path: `backend/app/services/scheduler.py`
-  - Anchor: Line 144: `print(f"AI worthiness failed, using algorithmic fallback: {e}")`
-  - Why it matters: Inconsistent with rest of codebase which uses `logger`. Should use structured logging.
+- **S-3:** renderMarkdown function scoped to single file
+  - Path: `frontend/src/pages/Cooking.tsx:17-55`
+  - Anchor: `function renderMarkdown(text: string): string {`
+  - Why it matters: Utility function is local to Cooking.tsx. Should be extracted to shared utility file for reuse elsewhere. Also exists in isolation - if another component needs markdown rendering, it would duplicate this code.
 
-- S-4: Print statement instead of logger (second occurrence)
-  - Path: `backend/app/services/scheduler.py`
-  - Anchor: Line 179: `print(f"AI title comparison failed for group {group.id}: {e}")`
-  - Why it matters: Same as S-3 - inconsistent logging.
+- **S-4:** Magic strings for article styles
+  - Path: `frontend/src/pages/Cooking.tsx:15`
+  - Anchor: `type ArticleStyle = 'news_brief' | 'full_article' | 'executive_summary' | 'analysis' | 'custom';`
+  - Why it matters: Style names duplicated between frontend types and backend prompt keys. Change in one place doesn't update the other. Should be shared constant.
 
-- S-5: Missing docstring for max_results parameter
-  - Path: `backend/app/services/x_client.py`
-  - Anchor: Lines 27-35 - docstring mentions `list_id` and `since_id` but not `max_results`
-  - Why it matters: Makes parameter purpose unclear, contributes to bugs like this being overlooked.
+- **S-5:** Alert-based user feedback
+  - Path: `frontend/src/pages/Cooking.tsx:277, 287`
+  - Anchor: `alert('Article copied to clipboard!')` and `alert(\`Article sent to #${channelName}!\`)`
+  - Why it matters: Using `alert()` for feedback is poor UX. Should use toast notifications or inline feedback. Blocks UI and looks unprofessional.
+
+- **S-6:** No loading state for article view
+  - Path: `frontend/src/pages/Cooking.tsx:367-441`
+  - Anchor: Article view section has no loading indicators
+  - Why it matters: If article content is large or slow to load, user sees nothing. Research view has spinner (lines 550-561) but article view doesn't.
 
 ## Chat Gate (MANDATORY)
 
 ```txt
-GATE: bf-1
+GATE: bf-2
 Written: docs/bugfix/bug_hunt.md
-Hypotheses count: 12
+Hypotheses count: 15
 Open questions: no
 Next: bf-2
 ```

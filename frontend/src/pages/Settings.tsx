@@ -5,6 +5,7 @@ import SettingsNav from '../components/SettingsNav';
 import PromptTile from '../components/PromptTile';
 import AddCategoryModal from '../components/AddCategoryModal';
 import CategoryMismatchLogModal from '../components/CategoryMismatchLogModal';
+import TeamsSettingsSection from '../components/TeamsSettingsSection';
 import LogDetailModal from '../components/LogDetailModal';
 
 export default function Settings() {
@@ -16,16 +17,13 @@ export default function Settings() {
   const [postsPerFetch, setPostsPerFetch] = useState(5);
   const [estimatedApiCalls, setEstimatedApiCalls] = useState(0);
   const [enabledListsCount, setEnabledListsCount] = useState(0);
-  const [worthinessThreshold, setWorthinessThreshold] = useState(0.6);
   const [duplicateThreshold, setDuplicateThreshold] = useState(0.85);
-  const [autoFetchEnabled, setAutoFetchEnabled] = useState(true);
+  const [autoFetchEnabled, setAutoFetchEnabled] = useState(false);
   const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
   const [worthinessPrompt, setWorthinessPrompt] = useState<any>(null);
   const [duplicatePrompt, setDuplicatePrompt] = useState<any>(null);
   const [categorizePrompt, setCategorizePrompt] = useState<any>(null);
-  const [generateArticlePrompt, setGenerateArticlePrompt] = useState<any>(null);
-  const [generateTitlePrompt, setGenerateTitlePrompt] = useState<any>(null);
-  const [suggestImprovementsPrompt, setSuggestImprovementsPrompt] = useState<any>(null);
+  const [researchPrompt, setResearchPrompt] = useState<any>(null);
   const [openContentSection, setOpenContentSection] = useState<string | null>(null);
   const [openSystemSection, setOpenSystemSection] = useState<string | null>(null);
 
@@ -42,6 +40,10 @@ export default function Settings() {
   const [logFilters, setLogFilters] = useState({ level: '', category: '', hours: 24 });
   const [selectedLogDetail, setSelectedLogDetail] = useState<any>(null);
   const [logCleanupDays, setLogCleanupDays] = useState(7);
+
+  // Article Style Prompts state
+  const [articleStylePrompts, setArticleStylePrompts] = useState<Record<string, string>>({});
+  const [editedArticleStylePrompts, setEditedArticleStylePrompts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     loadSchedulerStatus();
@@ -66,6 +68,10 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
+    loadSystemSettings();
+  }, []);
+
+  useEffect(() => {
     loadPrompts();
   }, []);
 
@@ -74,24 +80,50 @@ export default function Settings() {
     loadCategoryMismatches();
   }, []);
 
+  useEffect(() => {
+    loadArticleStylePrompts();
+  }, []);
+
   const loadPrompts = async () => {
     try {
-      const [worthiness, duplicate, categorize, generateArticle, generateTitle, suggestImprovements] = await Promise.all([
+      const [worthiness, duplicate, categorize, research] = await Promise.all([
         promptsApi.getByKey('score_worthiness'),
         promptsApi.getByKey('detect_duplicate'),
         promptsApi.getByKey('categorize_post'),
-        promptsApi.getByKey('generate_article'),
-        promptsApi.getByKey('generate_title'),
-        promptsApi.getByKey('suggest_improvements')
+        promptsApi.getByKey('research_prompt').catch(() => null)
       ]);
       setWorthinessPrompt(worthiness.data);
       setDuplicatePrompt(duplicate.data);
       setCategorizePrompt(categorize.data);
-      setGenerateArticlePrompt(generateArticle.data);
-      setGenerateTitlePrompt(generateTitle.data);
-      setSuggestImprovementsPrompt(suggestImprovements.data);
+      if (research?.data) setResearchPrompt(research.data);
     } catch (error) {
       console.error('Failed to load prompts:', error);
+    }
+  };
+
+  const loadArticleStylePrompts = async () => {
+    try {
+      const response = await settingsApi.getArticlePrompts();
+      setArticleStylePrompts(response.data.prompts);
+      setEditedArticleStylePrompts(response.data.prompts);
+    } catch (error) {
+      console.error('Failed to load article style prompts:', error);
+    }
+  };
+
+  const handleSaveArticleStylePrompt = async (style: string) => {
+    try {
+      const settingKey = `article_prompt_${style}`;
+      await settingsApi.update(settingKey, editedArticleStylePrompts[style]);
+      setArticleStylePrompts({
+        ...articleStylePrompts,
+        [style]: editedArticleStylePrompts[style]
+      });
+      setOperationFeedback('✓ Article style prompt saved');
+      setTimeout(() => setOperationFeedback(null), 2000);
+    } catch (error) {
+      setOperationFeedback('✗ Failed to save article style prompt');
+      setTimeout(() => setOperationFeedback(null), 3000);
     }
   };
 
@@ -177,6 +209,43 @@ export default function Settings() {
       }
     } catch (error) {
       console.error('Failed to load auto-fetch setting:', error);
+    }
+  };
+
+  const loadSystemSettings = async () => {
+    try {
+      const [
+        postsPerFetchRes,
+        ingestIntervalRes,
+        archiveAgeDaysRes,
+        archiveTimeHourRes,
+        duplicateThresholdRes
+      ] = await Promise.all([
+        settingsApi.getByKey('posts_per_fetch'),
+        settingsApi.getByKey('ingest_interval_minutes'),
+        settingsApi.getByKey('archive_age_days'),
+        settingsApi.getByKey('archive_time_hour'),
+        settingsApi.getByKey('duplicate_threshold')
+      ]);
+
+      if (postsPerFetchRes.data?.value) {
+        setPostsPerFetch(parseInt(postsPerFetchRes.data.value));
+      }
+      if (ingestIntervalRes.data?.value) {
+        setIngestInterval(parseInt(ingestIntervalRes.data.value));
+      }
+      if (archiveAgeDaysRes.data?.value) {
+        setArchiveAgeDays(parseInt(archiveAgeDaysRes.data.value));
+      }
+      if (archiveTimeHourRes.data?.value) {
+        const hour = parseInt(archiveTimeHourRes.data.value);
+        setArchiveTime(`${hour.toString().padStart(2, '0')}:00`);
+      }
+      if (duplicateThresholdRes.data?.value) {
+        setDuplicateThreshold(parseFloat(duplicateThresholdRes.data.value));
+      }
+    } catch (error) {
+      console.error('Failed to load system settings:', error);
     }
   };
 
@@ -366,42 +435,6 @@ export default function Settings() {
                   </div>
                 )}
 
-                <div className="setting-subgroup">
-                  <h4>Worthiness Threshold</h4>
-                  <p>Control how selective the AI is when recommending posts for article generation.</p>
-
-                  <label>
-                    Minimum Worthiness Score:
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={worthinessThreshold}
-                      onChange={(e) => {
-                        const value = parseFloat(e.target.value);
-                        setWorthinessThreshold(value);
-                      }}
-                      onMouseUp={() => updateSetting('worthiness_threshold', worthinessThreshold.toString())}
-                      onTouchEnd={() => updateSetting('worthiness_threshold', worthinessThreshold.toString())}
-                    />
-                    <span className="threshold-value">{worthinessThreshold.toFixed(2)}</span>
-                  </label>
-
-                  <p className="help-text">
-                    Current threshold: {worthinessThreshold.toFixed(2)} (0 = show all, 1 = only best)
-                    <br />
-                    {worthinessThreshold < 0.4 && (
-                      <strong style={{ color: '#dc3545' }}>Very permissive - most posts will be recommended</strong>
-                    )}
-                    {worthinessThreshold >= 0.4 && worthinessThreshold < 0.7 && (
-                      <strong style={{ color: '#ffc107' }}>Balanced - moderate filtering</strong>
-                    )}
-                    {worthinessThreshold >= 0.7 && (
-                      <strong style={{ color: '#28a745' }}>Strict - only high-quality posts recommended</strong>
-                    )}
-                  </p>
-                </div>
               </div>
             </div>
           </div>
@@ -586,30 +619,81 @@ export default function Settings() {
 
           <div className="collapsible-section">
             <div
-              className={`collapsible-header ${openContentSection === 'articles' ? 'active' : ''}`}
-              onClick={() => toggleContentSection('articles')}
+              className={`collapsible-header ${openContentSection === 'articleStyles' ? 'active' : ''}`}
+              onClick={() => toggleContentSection('articleStyles')}
             >
-              <h3>Articles</h3>
+              <h3>Article Style Prompts</h3>
               <span className="collapsible-icon">▼</span>
             </div>
-            <div className={`collapsible-content ${openContentSection === 'articles' ? 'open' : ''}`}>
+            <div className={`collapsible-content ${openContentSection === 'articleStyles' ? 'open' : ''}`}>
               <div className="collapsible-content-inner">
-                {generateArticlePrompt && (
-                  <div className="prompt-tile-container">
-                    <PromptTile prompt={generateArticlePrompt} onUpdate={loadPrompts} />
-                  </div>
-                )}
+                <p className="help-text" style={{ marginBottom: '16px' }}>
+                  Default prompts used when generating articles in the Cooking page.
+                  Edit these to customize the default style for each article type.
+                </p>
 
-                {generateTitlePrompt && (
-                  <div className="prompt-tile-container">
-                    <PromptTile prompt={generateTitlePrompt} onUpdate={loadPrompts} />
+                {Object.entries(editedArticleStylePrompts).map(([style, prompt]) => (
+                  <div key={style} className="setting-subgroup">
+                    <h4>{style.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}</h4>
+                    <textarea
+                      value={prompt}
+                      onChange={(e) => setEditedArticleStylePrompts({
+                        ...editedArticleStylePrompts,
+                        [style]: e.target.value
+                      })}
+                      rows={4}
+                      style={{ width: '100%', marginBottom: '8px' }}
+                    />
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        className="btn-primary btn-small"
+                        onClick={() => handleSaveArticleStylePrompt(style)}
+                        disabled={editedArticleStylePrompts[style] === articleStylePrompts[style]}
+                      >
+                        Save
+                      </button>
+                      <button
+                        className="btn-secondary btn-small"
+                        onClick={() => setEditedArticleStylePrompts({
+                          ...editedArticleStylePrompts,
+                          [style]: articleStylePrompts[style]
+                        })}
+                        disabled={editedArticleStylePrompts[style] === articleStylePrompts[style]}
+                      >
+                        Reset
+                      </button>
+                    </div>
                   </div>
-                )}
+                ))}
 
-                {suggestImprovementsPrompt && (
+                {Object.keys(editedArticleStylePrompts).length === 0 && (
+                  <p className="help-text">No article style prompts configured.</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="collapsible-section">
+            <div
+              className={`collapsible-header ${openContentSection === 'research' ? 'active' : ''}`}
+              onClick={() => toggleContentSection('research')}
+            >
+              <h3>Research Prompt</h3>
+              <span className="collapsible-icon">▼</span>
+            </div>
+            <div className={`collapsible-content ${openContentSection === 'research' ? 'open' : ''}`}>
+              <div className="collapsible-content-inner">
+                <p className="help-text" style={{ marginBottom: '16px' }}>
+                  Default prompt used when running research in the Cooking page.
+                  Uses <code>{"{{TITLE}}"}</code> and <code>{"{{SUMMARY}}"}</code> placeholders.
+                </p>
+
+                {researchPrompt ? (
                   <div className="prompt-tile-container">
-                    <PromptTile prompt={suggestImprovementsPrompt} onUpdate={loadPrompts} />
+                    <PromptTile prompt={researchPrompt} onUpdate={loadPrompts} />
                   </div>
+                ) : (
+                  <p className="help-text">Research prompt not configured. It will be created on first use.</p>
                 )}
               </div>
             </div>
@@ -663,8 +747,12 @@ export default function Settings() {
                     <label>
                       Interval (minutes):
                       <select
-                        onChange={(e) => updateSetting('ingest_interval_minutes', e.target.value)}
-                        defaultValue="30"
+                        value={ingestInterval.toString()}
+                        onChange={(e) => {
+                          const value = parseInt(e.target.value);
+                          setIngestInterval(value);
+                          updateSetting('ingest_interval_minutes', e.target.value);
+                        }}
                       >
                         <option value="5">Every 5 minutes</option>
                         <option value="15">Every 15 minutes</option>
@@ -806,6 +894,21 @@ export default function Settings() {
                       )}
                     </p>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="collapsible-section">
+              <div
+                className={`collapsible-header ${openSystemSection === 'teams' ? 'active' : ''}`}
+                onClick={() => toggleSystemSection('teams')}
+              >
+                <h3>Teams Integration</h3>
+                <span className="collapsible-icon">▼</span>
+              </div>
+              <div className={`collapsible-content ${openSystemSection === 'teams' ? 'open' : ''}`}>
+                <div className="collapsible-content-inner">
+                  <TeamsSettingsSection />
                 </div>
               </div>
             </div>

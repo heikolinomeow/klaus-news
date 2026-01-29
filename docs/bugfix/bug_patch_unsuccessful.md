@@ -5,4 +5,4 @@
 
 ---
 
-No operations failed. All patch operations were applied successfully.
+No operations failed. All 4 patch operations were applied successfully.

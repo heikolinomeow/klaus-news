@@ -18,12 +18,27 @@ CREATE TABLE IF NOT EXISTS prompts (
 
 CREATE INDEX IF NOT EXISTS idx_prompts_key ON prompts(prompt_key);
 
--- Seed default prompts (V-22 also seeds these at startup)
+-- Seed default prompts (only prompts actually used by backend code)
 INSERT INTO prompts (prompt_key, prompt_text, model, temperature, max_tokens, description) VALUES
-('categorize_post', 'Analyze this X/Twitter post and assign it to ONE category: Technology, Politics, Business, Science, Health, or Other. Return ONLY the category name.', 'gpt-4-turbo', 0.3, 50, 'Post categorization prompt'),
-('generate_title', 'Generate a concise, engaging title (max 80 chars) for this X/Twitter thread. Focus on the main insight or takeaway.', 'gpt-4-turbo', 0.7, 100, 'Article title generation'),
-('generate_article', 'Transform this X/Twitter thread into a professional blog article. Preserve key insights, add context where needed, maintain the author''s voice.', 'gpt-4-turbo', 0.7, 1500, 'Full article generation'),
+('categorize_post', 'You are categorizing social media posts about AI. Read the post carefully and assign it to exactly ONE category based on the primary topic. Consider the main subject matter, not peripheral mentions.
+
+Categorize into one of the following categories:
+{{CATEGORIES}}
+
+Return ONLY the category name, nothing else.', 'gpt-5-mini', 0.3, 50, 'Post categorization prompt (uses {{CATEGORIES}} placeholder)'),
 ('score_worthiness', 'Rate this post''s worthiness for article generation (0.0-1.0). Consider: insight quality, topic relevance, completeness, engagement potential. Return ONLY a number between 0.0 and 1.0.', 'gpt-4-turbo', 0.3, 50, 'AI worthiness scoring (V-6)'),
 ('detect_duplicate', 'Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.', 'gpt-4o-mini', 0.0, 10, 'AI duplicate detection (returns similarity score 0.0-1.0)'),
-('suggest_improvements', 'Suggest 3 specific improvements for this draft article. Focus on clarity, structure, and reader value.', 'gpt-4-turbo', 0.7, 500, 'Article improvement suggestions')
+('research_prompt', 'Research this story to help write an article that answers: "How does this help me work better with AI?"
+
+**Story:** {{TITLE}}
+**Details:** {{SUMMARY}}
+
+Use web search to find:
+- What''s actually new or different here
+- Real-world examples of people/companies benefiting
+- Step-by-step applications if any exist
+- Honest assessment of limitations
+- Links to try it yourself (tools, demos, papers)
+
+Write for someone with 5 minutes who wants to know if this matters.', 'gpt-5-search-api', 0.7, 4000, 'Research prompt for web search (uses {{TITLE}} and {{SUMMARY}} placeholders)')
 ON CONFLICT (prompt_key) DO NOTHING;

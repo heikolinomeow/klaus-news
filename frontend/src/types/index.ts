@@ -63,6 +63,7 @@ export interface Group {
   selected?: boolean;
   representative_summary?: string;
   post_count: number;
+  max_worthiness?: number;
 }
 
 export interface GroupsResponse {
@@ -89,6 +90,7 @@ export interface GroupArticle {
   research_id: number | null;
   style: 'news_brief' | 'full_article' | 'executive_summary' | 'analysis' | 'custom';
   prompt_used: string;
+  title: string | null;
   content: string;
   created_at: string;
   updated_at: string | null;

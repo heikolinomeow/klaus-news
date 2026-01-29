@@ -48,7 +48,6 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
     from app.models.list_metadata import ListMetadata
     from app.database import SessionLocal
     from sqlalchemy import select
-    from app.services.scoring import calculate_worthiness_score
     from app.services.settings_service import SettingsService  # V-27
 
     logger.info(f"Starting {trigger_source} post ingestion job", extra={'trigger_source': trigger_source})
@@ -76,8 +75,8 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
             logger.info("Scheduler paused, skipping scheduled ingestion")
             return stats
 
-        # V-3: Check if auto-fetch is enabled
-        auto_fetch_enabled = settings_svc.get('auto_fetch_enabled', True)
+        # V-3: Check if auto-fetch is enabled (default: disabled)
+        auto_fetch_enabled = settings_svc.get('auto_fetch_enabled', False)
         if not auto_fetch_enabled and trigger_source == "scheduled":
             logger.info("Auto-fetch disabled, skipping scheduled ingestion")
             return stats
@@ -118,9 +117,14 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                     # Re-raise unexpected errors
                     raise
 
+            # Client-side filtering: only process posts newer than last_tweet_id
+            # Use integer comparison since tweet IDs are numeric strings
+            if since_id is not None:
+                raw_posts = [p for p in raw_posts if int(p["id"]) > int(since_id)]
+
             # Update last_tweet_id if we got new posts
             if raw_posts:
-                max_tweet_id = max(post["id"] for post in raw_posts)
+                max_tweet_id = max(raw_posts, key=lambda p: int(p["id"]))["id"]
                 list_meta.last_tweet_id = max_tweet_id
 
             for raw_post in raw_posts:
@@ -137,16 +141,12 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                 cat_result = await openai_client.categorize_post(raw_post['text'])
                 gen_result = await openai_client.generate_title_and_summary(raw_post['text'])
 
-                # V-6: Use AI worthiness scoring (with fallback to algorithmic)
+                # V-6: Use AI worthiness scoring (with static fallback)
                 try:
-                    worthiness = await openai_client.score_worthiness(raw_post['text'])
+                    worthiness = await openai_client.score_worthiness(raw_post['text'], db=db)
                 except Exception as e:
-                    print(f"AI worthiness failed, using algorithmic fallback: {e}")
-                    worthiness = calculate_worthiness_score(
-                        cat_result['confidence'],
-                        raw_post['text'],
-                        raw_post['created_at']
-                    )
+                    print(f"AI worthiness failed, using default 0.5: {e}")
+                    worthiness = 0.5
 
                 # 3b. Topic grouping via AI semantic title comparison
                 # Read duplicate threshold from settings
