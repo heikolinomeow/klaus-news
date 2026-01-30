@@ -1,70 +1,164 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, MouseEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { groupsApi, researchApi, groupArticlesApi, settingsApi, promptsApi, teamsApi } from '../services/api';
 import { Group, Post, GroupResearch, GroupArticle } from '../types';
-import CategorySidebar from '../components/CategorySidebar';
 import TeamsChannelModal from '../components/TeamsChannelModal';
 import ArticleEditor from '../components/ArticleEditor';
 
-interface Category {
-  id: string;
-  name: string;
-  description: string;
-  order: number;
+type ResearchMode = 'quick' | 'agentic' | 'deep';
+type ArticleStyle = 'very_short' | 'short' | 'medium' | 'long' | 'custom';
+
+// Check if content is HTML (from WYSIWYG editor) vs markdown (from AI)
+function isHtmlContent(text: string): boolean {
+  if (!text) return false;
+  return /<(p|div|br|strong|em|h[1-6]|ul|ol|li|a|blockquote)[^>]*>/i.test(text);
 }
 
-type ResearchMode = 'quick' | 'agentic' | 'deep';
-type ArticleStyle = 'news_brief' | 'full_article' | 'executive_summary' | 'analysis' | 'custom';
+// Render content - detect HTML vs markdown and handle appropriately
+function renderContent(text: string): string {
+  if (!text) return '';
+  if (isHtmlContent(text)) {
+    return text;
+  }
+  return renderMarkdown(text);
+}
 
 // Simple markdown to HTML converter
 function renderMarkdown(text: string): string {
   if (!text) return '';
 
-  let html = text
-    // Escape HTML
+  // Process line by line to properly handle lists
+  const lines = text.split('\n');
+  const result: string[] = [];
+  let listItems: string[] = [];
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      result.push('<ul>' + listItems.join('') + '</ul>');
+      listItems = [];
+    }
+  };
+
+  const escapeHtml = (str: string) => str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    // Headers
-    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/>/g, '&gt;');
+
+  const processInline = (str: string) => str
     // Bold and italic
     .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     // Links
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-    // Unordered lists
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    // Numbered lists
-    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
-    // Blockquotes
-    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    // Auto-link bare URLs (must come after markdown links to avoid double-linking)
+    .replace(/(^|[^"'>])(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>')
     // Inline code
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // Line breaks (double newline = paragraph)
-    .replace(/\n\n/g, '</p><p>')
-    // Single newlines within paragraphs
-    .replace(/\n/g, '<br/>');
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
 
-  // Wrap consecutive <li> items in <ul>
-  html = html.replace(/(<li>.*?<\/li>)(\s*<br\/>)*(<li>)/g, '$1$3');
-  html = html.replace(/(<li>.*?<\/li>)+/g, '<ul>$&</ul>');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
 
-  return `<p>${html}</p>`;
+    // Empty line - flush list and add paragraph break
+    if (!trimmed) {
+      flushList();
+      result.push('</p><p>');
+      continue;
+    }
+
+    // Headers
+    const h4Match = trimmed.match(/^####\s+(.+)$/);
+    const h3Match = trimmed.match(/^###\s+(.+)$/);
+    const h2Match = trimmed.match(/^##\s+(.+)$/);
+    const h1Match = trimmed.match(/^#\s+(.+)$/);
+
+    if (h4Match) {
+      flushList();
+      result.push(`<h4>${processInline(escapeHtml(h4Match[1]))}</h4>`);
+      continue;
+    }
+    if (h3Match) {
+      flushList();
+      result.push(`<h3>${processInline(escapeHtml(h3Match[1]))}</h3>`);
+      continue;
+    }
+    if (h2Match) {
+      flushList();
+      result.push(`<h2>${processInline(escapeHtml(h2Match[1]))}</h2>`);
+      continue;
+    }
+    if (h1Match) {
+      flushList();
+      result.push(`<h1>${processInline(escapeHtml(h1Match[1]))}</h1>`);
+      continue;
+    }
+
+    // Blockquote
+    const blockquoteMatch = trimmed.match(/^>\s+(.+)$/);
+    if (blockquoteMatch) {
+      flushList();
+      result.push(`<blockquote>${processInline(escapeHtml(blockquoteMatch[1]))}</blockquote>`);
+      continue;
+    }
+
+    // List items - bullet points (• or *)
+    const bulletMatch = trimmed.match(/^[•*]\s+(.+)$/);
+    if (bulletMatch) {
+      listItems.push(`<li class="main-bullet">${processInline(escapeHtml(bulletMatch[1]))}</li>`);
+      continue;
+    }
+
+    // List items - dashes (sub-items or regular list items)
+    const dashMatch = trimmed.match(/^-\s+(.+)$/);
+    if (dashMatch) {
+      // If we're already in a list, treat as sub-item; otherwise main item
+      const className = listItems.length > 0 ? 'sub-item' : 'main-bullet';
+      listItems.push(`<li class="${className}">${processInline(escapeHtml(dashMatch[1]))}</li>`);
+      continue;
+    }
+
+    // Numbered list
+    const numberedMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (numberedMatch) {
+      listItems.push(`<li>${processInline(escapeHtml(numberedMatch[1]))}</li>`);
+      continue;
+    }
+
+    // Regular text - flush any pending list first
+    flushList();
+    result.push(processInline(escapeHtml(trimmed)));
+  }
+
+  // Flush any remaining list items
+  flushList();
+
+  return `<p>${result.join('')}</p>`;
+}
+
+// Convert URLs in plain text to clickable links
+function linkifyText(text: string): string {
+  if (!text) return '';
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return escaped.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
 }
 
 export default function Cooking() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const navigationState = location.state as { selectedGroupId?: number } | null;
+
   // Groups & Posts
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
-
-  // Categories for sidebar
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   // Research
   const [research, setResearch] = useState<GroupResearch | null>(null);
@@ -72,13 +166,12 @@ export default function Cooking() {
   const [isResearchLoading, setIsResearchLoading] = useState(false);
   const [defaultResearchPrompt, setDefaultResearchPrompt] = useState<string>('');
   const [sessionResearchPrompt, setSessionResearchPrompt] = useState<string>('');
-  const [showResearchPrompt, setShowResearchPrompt] = useState(false);
 
   // Article - multi-article support
   const [articles, setArticles] = useState<GroupArticle[]>([]);
   const [currentArticleIndex, setCurrentArticleIndex] = useState(0);
   const currentArticle = articles.length > 0 ? articles[currentArticleIndex] : null;
-  const [articleStyle, setArticleStyle] = useState<ArticleStyle>('news_brief');
+  const [articleStyle, setArticleStyle] = useState<ArticleStyle>('short');
   const [customPrompt, setCustomPrompt] = useState('');
   const [isGeneratingArticle, setIsGeneratingArticle] = useState(false);
   const [refinementInstruction, setRefinementInstruction] = useState('');
@@ -91,6 +184,7 @@ export default function Cooking() {
   // Edit mode state
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
+  const [editedPreview, setEditedPreview] = useState('');
   const [editedContent, setEditedContent] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -110,6 +204,16 @@ export default function Cooking() {
     loadResearchPrompt();
     loadTeamsChannels();
   }, []);
+
+  // Auto-select group from navigation state
+  useEffect(() => {
+    if (navigationState?.selectedGroupId && groups.length > 0 && !selectedGroup) {
+      const groupToSelect = groups.find((g: Group) => g.id === navigationState.selectedGroupId);
+      if (groupToSelect) {
+        selectGroup(groupToSelect);
+      }
+    }
+  }, [groups, navigationState?.selectedGroupId]);
 
   const loadTeamsChannels = async () => {
     try {
@@ -150,20 +254,12 @@ export default function Cooking() {
 
   const loadGroups = async () => {
     try {
-      const [groupsResponse, categoriesResponse] = await Promise.all([
-        groupsApi.getAll(),
-        settingsApi.getByKey('categories')
-      ]);
+      const groupsResponse = await groupsApi.getAll();
 
       const cookingGroups = groupsResponse.data.groups.filter(
         (g: Group) => g.state === 'COOKING'
       );
       setGroups(cookingGroups);
-
-      const cats = categoriesResponse.data.value
-        ? JSON.parse(categoriesResponse.data.value)
-        : [];
-      setCategories(cats);
 
       // Show error if no groups
       if (cookingGroups.length === 0) {
@@ -236,23 +332,31 @@ export default function Cooking() {
   };
 
   const generateArticle = async () => {
-    if (!selectedGroup) return;
+    if (!selectedGroup || !research) return;
 
     setIsGeneratingArticle(true);
     setError(null);
 
     try {
-      // Use custom prompt for 'custom' style, or the editable prompt for preset styles
       const promptToUse = articleStyle === 'custom' ? customPrompt : editablePrompt;
-      const response = await groupArticlesApi.generate(
+      await groupArticlesApi.generate(
         selectedGroup.id,
         articleStyle,
         promptToUse
       );
-      // Prepend new article to array (most recent first)
-      setArticles((prev: GroupArticle[]) => [response.data.article, ...prev]);
+
+      // Reload articles to include the new one
+      const articlesResponse = await groupArticlesApi.getAll(selectedGroup.id);
+      setArticles(articlesResponse.data.articles || []);
       setCurrentArticleIndex(0);
-      setView('article');
+
+      // Transition to REVIEW state and navigate to Serving
+      if (selectedGroup.state === 'COOKING') {
+        await groupsApi.transition(selectedGroup.id, 'REVIEW');
+      }
+
+      // Navigate to Serving page
+      navigate('/serving');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to generate article');
       console.error(err);
@@ -295,6 +399,7 @@ export default function Cooking() {
   const startEditing = () => {
     if (currentArticle) {
       setEditedTitle(currentArticle.title || selectedGroup?.representative_title || '');
+      setEditedPreview(currentArticle.preview || '');
       setEditedContent(currentArticle.content);
       setIsEditing(true);
     }
@@ -303,6 +408,7 @@ export default function Cooking() {
   const cancelEditing = () => {
     setIsEditing(false);
     setEditedTitle('');
+    setEditedPreview('');
     setEditedContent('');
   };
 
@@ -313,13 +419,14 @@ export default function Cooking() {
     setError(null);
 
     try {
-      const response = await groupArticlesApi.update(selectedGroup.id, currentArticle.id, editedContent, editedTitle);
+      const response = await groupArticlesApi.update(selectedGroup.id, currentArticle.id, editedContent, editedTitle, editedPreview);
       // Update the specific article in the array
       setArticles((prev: GroupArticle[]) => prev.map(a =>
         a.id === currentArticle.id ? response.data.article : a
       ));
       setIsEditing(false);
       setEditedTitle('');
+      setEditedPreview('');
       setEditedContent('');
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to save article');
@@ -349,68 +456,48 @@ export default function Cooking() {
     }
   };
 
-  // Filtered groups for sidebar
-  const filteredGroups = useMemo(() => {
-    if (!selectedCategory) return groups;
-    return groups.filter((g: Group) => g.category === selectedCategory);
-  }, [groups, selectedCategory]);
-
-  const groupCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    groups.forEach((g: Group) => {
-      if (g.category) {
-        counts[g.category] = (counts[g.category] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [groups]);
+  // All groups (no category filtering)
+  const filteredGroups = groups;
 
   // Group selector view
   if (!selectedGroup && groups.length >= 1) {
     return (
-      <div className="page-with-sidebar">
-        <CategorySidebar
-          categories={categories}
-          selectedCategory={selectedCategory}
-          onSelectCategory={setSelectedCategory}
-          groupCounts={groupCounts}
-          totalCount={groups.length}
-        />
-        <div className="sidebar-main-content">
-          <div className="cooking-container">
-            <div className="cooking-header">
-              <h1>Cooking</h1>
-              <p>Select a group to work with:</p>
+      <div className="cooking-container">
+        <div className="cooking-header">
+          <h1>Cooking</h1>
+          <p>Select a group to work with:</p>
+        </div>
+        <div className="cooking-group-selector">
+          {filteredGroups.map((group: Group) => (
+            <div
+              key={group.id}
+              className="cooking-group-card"
+              onClick={() => selectGroup(group)}
+            >
+              <h3>{group.representative_title}</h3>
+              <div className="cooking-group-meta">
+                <span className="badge">{group.category}</span>
+                <span className="small muted">{group.post_count} posts</span>
+              </div>
+              <button
+                className="cooking-group-remove"
+                onClick={async (e: MouseEvent<HTMLButtonElement>) => {
+                  e.stopPropagation();
+                  if (confirm('Remove this group from cooking?')) {
+                    try {
+                      await groupsApi.transition(group.id, 'NEW');
+                      loadGroups();
+                    } catch (err) {
+                      console.error('Failed to remove group:', err);
+                    }
+                  }
+                }}
+                title="Remove from cooking"
+              >
+                🗑
+              </button>
             </div>
-            <div className="cooking-group-selector">
-              {filteredGroups.length === 0 ? (
-                <div style={{ padding: '24px', textAlign: 'center', color: '#64748b' }}>
-                  <p>No groups in this category.</p>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setSelectedCategory(null)}
-                    style={{ marginTop: '12px' }}
-                  >
-                    Clear Filter
-                  </button>
-                </div>
-              ) : (
-                filteredGroups.map((group: Group) => (
-                  <div
-                    key={group.id}
-                    className="cooking-group-card"
-                    onClick={() => selectGroup(group)}
-                  >
-                    <h3>{group.representative_title}</h3>
-                    <div className="cooking-group-meta">
-                      <span className="badge">{group.category}</span>
-                      <span className="small muted">{group.post_count} posts</span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
+          ))}
         </div>
       </div>
     );
@@ -486,7 +573,7 @@ export default function Cooking() {
             {isEditing ? (
               <div className="article-editor-container">
                 <div style={{ marginBottom: '16px' }}>
-                  <label htmlFor="article-title" style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#e2e8f0' }}>
+                  <label htmlFor="article-title" style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#1a1a1a', fontFamily: 'Source Sans Pro, Helvetica Neue, Arial, sans-serif' }}>
                     Title
                   </label>
                   <input
@@ -500,10 +587,34 @@ export default function Cooking() {
                       padding: '12px',
                       fontSize: '1.1rem',
                       fontWeight: 600,
-                      border: '1px solid #334155',
+                      fontFamily: 'Playfair Display, Georgia, serif',
+                      border: '1px solid #d4d0c8',
                       borderRadius: '4px',
-                      backgroundColor: '#1e293b',
-                      color: '#e2e8f0'
+                      backgroundColor: '#fefdfb',
+                      color: '#1a1a1a'
+                    }}
+                  />
+                </div>
+                <div style={{ marginBottom: '16px' }}>
+                  <label htmlFor="article-preview" style={{ display: 'block', marginBottom: '8px', fontWeight: 600, color: '#1a1a1a', fontFamily: 'Source Sans Pro, Helvetica Neue, Arial, sans-serif' }}>
+                    Preview <span style={{ fontWeight: 400, color: '#666666', fontSize: '0.85rem' }}>(shown in Teams card before "Read more")</span>
+                  </label>
+                  <textarea
+                    id="article-preview"
+                    value={editedPreview}
+                    onChange={(e) => setEditedPreview(e.target.value)}
+                    placeholder="Write a short teaser that will appear in the Teams card..."
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      fontSize: '0.95rem',
+                      fontFamily: 'Libre Baskerville, Georgia, serif',
+                      border: '1px solid #d4d0c8',
+                      borderRadius: '4px',
+                      backgroundColor: '#fefdfb',
+                      color: '#1a1a1a',
+                      resize: 'vertical'
                     }}
                   />
                 </div>
@@ -529,7 +640,7 @@ export default function Cooking() {
                 </div>
               </div>
             ) : (
-              <div className="article-text" dangerouslySetInnerHTML={{ __html: renderMarkdown(currentArticle.content) }} />
+              <div className="article-text" dangerouslySetInnerHTML={{ __html: renderContent(currentArticle.content) }} />
             )}
           </div>
 
@@ -570,9 +681,6 @@ export default function Cooking() {
               >
                 Send to Teams
               </button>
-              <button className="btn btn-secondary" onClick={() => alert('Publish feature coming soon')}>
-                Mark as Published
-              </button>
             </div>
           )}
         </div>
@@ -580,7 +688,7 @@ export default function Cooking() {
         {showTeamsModal && teamsChannels.length > 0 && (
           <TeamsChannelModal
             channels={teamsChannels}
-            articleTitle={selectedGroup?.representative_title || 'Article'}
+            articleTitle={currentArticle.title || selectedGroup?.representative_title || 'Article'}
             articleSummary={currentArticle.content.substring(0, 200) + '...'}
             onClose={() => setShowTeamsModal(false)}
             onSend={sendToTeams}
@@ -596,14 +704,10 @@ export default function Cooking() {
     <div className="cooking-container">
       {/* Compact Header */}
       <div className="cooking-header">
-        <h1>Cooking</h1>
+        <h1>{selectedGroup?.category?.toUpperCase() || 'COOKING'}</h1>
         {selectedGroup && (
           <div className="cooking-group-info">
             <h2>{selectedGroup.representative_title}</h2>
-            <div className="cooking-group-meta">
-              <span className="badge">{selectedGroup.category}</span>
-              <span className="small muted">{posts.length} posts</span>
-            </div>
           </div>
         )}
         <button
@@ -622,7 +726,7 @@ export default function Cooking() {
         <div className="cooking-panel posts-panel">
           <h3>Source Posts ({posts.length})</h3>
           {posts.length === 0 ? (
-            <div style={{ padding: '24px 16px', textAlign: 'center', color: '#64748b' }}>
+            <div style={{ padding: '24px 16px', textAlign: 'center', color: '#666666', fontFamily: 'Libre Baskerville, Georgia, serif', fontStyle: 'italic' }}>
               No posts found
             </div>
           ) : (
@@ -655,7 +759,7 @@ export default function Cooking() {
               {selectedPost ? (
                 <div className="post-detail-content">
                   <div className="post-detail-author">@{selectedPost.author || 'unknown'}</div>
-                  <div className="post-detail-text">{selectedPost.original_text}</div>
+                  <div className="post-detail-text" dangerouslySetInnerHTML={{ __html: linkifyText(selectedPost.original_text) }} />
                   {selectedPost.worthiness_score && (
                     <div className="post-detail-score">
                       Score: {selectedPost.worthiness_score.toFixed(2)}
@@ -674,8 +778,8 @@ export default function Cooking() {
               <h3>
                 <span>Research Output</span>
                 {research && (
-                  <span style={{ fontSize: '0.65rem', color: '#10b981', marginLeft: '8px' }}>
-                    ● Ready
+                  <span style={{ fontSize: '0.65rem', color: '#2d5a27', marginLeft: '8px', fontFamily: 'Source Sans Pro, Helvetica Neue, Arial, sans-serif' }}>
+                    Ready
                   </span>
                 )}
               </h3>
@@ -688,9 +792,10 @@ export default function Cooking() {
                   justifyContent: 'center',
                   flex: 1,
                   gap: '8px',
-                  color: '#64748b'
+                  color: '#666666',
+                  fontFamily: 'Libre Baskerville, Georgia, serif'
                 }}>
-                  <p style={{ margin: 0, fontSize: '0.9rem' }}>No research yet</p>
+                  <p style={{ margin: 0, fontSize: '0.9rem', fontStyle: 'italic' }}>No research yet</p>
                   <p style={{ margin: 0, fontSize: '0.8rem' }}>Run research to get started</p>
                 </div>
               )}
@@ -705,7 +810,7 @@ export default function Cooking() {
                   gap: '12px'
                 }}>
                   <div className="spinner"></div>
-                  <p style={{ margin: 0, color: '#60a5fa' }}>Running {researchMode} research...</p>
+                  <p style={{ margin: 0, color: '#8b7355', fontFamily: 'Source Sans Pro, Helvetica Neue, Arial, sans-serif', fontStyle: 'italic' }}>Running {researchMode} research...</p>
                 </div>
               )}
 
@@ -758,98 +863,74 @@ export default function Cooking() {
               <option value="deep">Deep</option>
             </select>
             <button
-              className="btn btn-secondary btn-sm"
-              onClick={() => setShowResearchPrompt(!showResearchPrompt)}
-              style={{ padding: '6px 10px', fontSize: '0.75rem' }}
-            >
-              {showResearchPrompt ? 'Hide Prompt' : 'Edit Prompt'}
-            </button>
-            <button
               className="btn btn-primary"
               onClick={runResearch}
-              disabled={isResearchLoading || !selectedGroup}
+              disabled={isResearchLoading || isGeneratingArticle || !selectedGroup}
             >
-              {isResearchLoading ? 'Running...' : 'Run Research'}
+              {isResearchLoading ? 'Researching...' : 'Research'}
             </button>
           </div>
 
-          {/* Research Prompt Editor (Session-level) */}
-          {showResearchPrompt && (
-            <div className="research-prompt-editor" style={{ marginTop: '12px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                  Research Prompt (session edit - uses {'{{TITLE}}'} and {'{{SUMMARY}}'} placeholders)
-                </span>
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => setSessionResearchPrompt(defaultResearchPrompt)}
-                  disabled={sessionResearchPrompt === defaultResearchPrompt}
-                  style={{ padding: '2px 8px', fontSize: '0.65rem' }}
-                >
-                  Reset to Default
-                </button>
-              </div>
-              <textarea
-                value={sessionResearchPrompt}
-                onChange={(e) => setSessionResearchPrompt(e.target.value)}
-                disabled={isResearchLoading}
-                rows={6}
-                style={{
-                  width: '100%',
-                  padding: '8px',
-                  fontSize: '0.8rem',
-                  fontFamily: 'monospace',
-                  border: '1px solid #334155',
-                  borderRadius: '4px',
-                  backgroundColor: '#1e293b',
-                  color: '#e2e8f0',
-                  resize: 'vertical'
-                }}
-              />
-              {sessionResearchPrompt !== defaultResearchPrompt && (
-                <div style={{ fontSize: '0.7rem', color: '#f59e0b', marginTop: '4px' }}>
-                  Modified for this session (not saved to settings)
-                </div>
-              )}
+          {/* Research Prompt (always visible) */}
+          <div className="style-prompt-editor">
+            <div className="style-prompt-header">
+              <span className="style-prompt-label">Research Prompt</span>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSessionResearchPrompt(defaultResearchPrompt)}
+                disabled={sessionResearchPrompt === defaultResearchPrompt}
+                style={{ padding: '4px 8px', fontSize: '0.65rem' }}
+              >
+                Reset
+              </button>
             </div>
-          )}
+            <textarea
+              className="style-prompt-textarea"
+              value={sessionResearchPrompt}
+              onChange={(e) => setSessionResearchPrompt(e.target.value)}
+              disabled={isResearchLoading}
+              rows={3}
+            />
+          </div>
         </div>
 
-        {/* Article Generation Controls */}
+        {/* Article Style Selection */}
         <div className="cooking-action-group">
-          <label>Generate Article</label>
+          <label>Article Style</label>
           <div className="cooking-action-row">
             <select
               className="cooking-select"
               value={articleStyle}
               onChange={(e) => setArticleStyle(e.target.value as ArticleStyle)}
-              disabled={isGeneratingArticle}
+              disabled={isResearchLoading || isGeneratingArticle}
             >
-              <option value="news_brief">News Brief</option>
-              <option value="full_article">Full Article</option>
-              <option value="executive_summary">Executive Summary</option>
-              <option value="analysis">Analysis</option>
+              <option value="very_short">Very Short (~50 words)</option>
+              <option value="short">Short (~100 words)</option>
+              <option value="medium">Medium (~200 words)</option>
+              <option value="long">Long (~400 words)</option>
               <option value="custom">Custom</option>
             </select>
-
-            {articleStyle === 'custom' && (
-              <input
-                type="text"
-                className="cooking-custom-prompt"
-                placeholder="Enter custom prompt..."
-                value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
-                disabled={isGeneratingArticle}
-              />
-            )}
 
             <button
               className="btn btn-primary"
               onClick={generateArticle}
-              disabled={isGeneratingArticle || !research || (articleStyle === 'custom' && !customPrompt.trim())}
+              disabled={isGeneratingArticle || isResearchLoading || !selectedGroup || !research || (articleStyle === 'custom' && !customPrompt.trim())}
+              title={!research ? 'Run research first' : ''}
             >
               {isGeneratingArticle ? 'Generating...' : 'Generate Article'}
             </button>
+
+            {articleStyle === 'custom' && (
+              <textarea
+                className="cooking-custom-prompt"
+                placeholder="Enter custom prompt..."
+                value={customPrompt}
+                onChange={(e) => setCustomPrompt(e.target.value)}
+                disabled={isResearchLoading || isGeneratingArticle}
+                rows={4}
+                style={{ minHeight: '100px', resize: 'vertical' }}
+              />
+            )}
           </div>
 
           {/* Editable prompt for selected style */}
@@ -873,7 +954,7 @@ export default function Cooking() {
                 value={editablePrompt}
                 onChange={(e) => setEditablePrompt(e.target.value)}
                 rows={3}
-                disabled={isGeneratingArticle}
+                disabled={isResearchLoading || isGeneratingArticle}
               />
             </div>
           )}

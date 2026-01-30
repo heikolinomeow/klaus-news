@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
-import { settingsApi, listsApi, adminApi, promptsApi, logsApi } from '../services/api';
+import { settingsApi, listsApi, adminApi, promptsApi } from '../services/api';
 import DataSourceManager from '../components/DataSourceManager';
 import SettingsNav from '../components/SettingsNav';
 import PromptTile from '../components/PromptTile';
 import AddCategoryModal from '../components/AddCategoryModal';
 import CategoryMismatchLogModal from '../components/CategoryMismatchLogModal';
 import TeamsSettingsSection from '../components/TeamsSettingsSection';
-import LogDetailModal from '../components/LogDetailModal';
 
 export default function Settings() {
   const [nextRunTime, setNextRunTime] = useState<string | null>(null);
@@ -33,13 +32,6 @@ export default function Settings() {
   const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
   const [showMismatchLogModal, setShowMismatchLogModal] = useState(false);
   const [categoryEditStates, setCategoryEditStates] = useState<Record<string, string>>({});
-
-  // System Logs state
-  const [systemLogs, setSystemLogs] = useState<Array<any>>([]);
-  const [logStats, setLogStats] = useState<any>(null);
-  const [logFilters, setLogFilters] = useState({ level: '', category: '', hours: 24 });
-  const [selectedLogDetail, setSelectedLogDetail] = useState<any>(null);
-  const [logCleanupDays, setLogCleanupDays] = useState(7);
 
   // Article Style Prompts state
   const [articleStylePrompts, setArticleStylePrompts] = useState<Record<string, string>>({});
@@ -361,49 +353,6 @@ export default function Settings() {
 
   const toggleSystemSection = (section: string) => {
     setOpenSystemSection(openSystemSection === section ? null : section);
-    if (section === 'logs' && openSystemSection !== 'logs') {
-      loadLogs();
-      loadLogStats();
-    }
-  };
-
-  const loadLogs = async () => {
-    try {
-      const response = await logsApi.getAll({
-        level: logFilters.level || undefined,
-        category: logFilters.category || undefined,
-        hours: logFilters.hours,
-        limit: 100,
-        offset: 0
-      });
-      setSystemLogs(response.data.logs);
-    } catch (error) {
-      console.error('Failed to load logs:', error);
-    }
-  };
-
-  const loadLogStats = async () => {
-    try {
-      const response = await logsApi.getStats(logFilters.hours);
-      setLogStats(response.data);
-    } catch (error) {
-      console.error('Failed to load log stats:', error);
-    }
-  };
-
-  const handleLogCleanup = async () => {
-    try {
-      setOperationFeedback('Cleaning up old logs...');
-      await logsApi.cleanup(logCleanupDays);
-      setOperationFeedback('✓ Logs cleaned up successfully');
-      setTimeout(() => setOperationFeedback(null), 3000);
-      loadLogs();
-      loadLogStats();
-    } catch (error) {
-      setOperationFeedback('✗ Failed to cleanup logs');
-      setTimeout(() => setOperationFeedback(null), 3000);
-      console.error('Failed to cleanup logs:', error);
-    }
   };
 
   return (
@@ -548,7 +497,7 @@ export default function Settings() {
                         <span className="lock-icon">🔒</span>
                       </div>
                       <p className="category-description-readonly">
-                        Posts that don't clearly fit the above categories. (system default)
+                        Content not related to AI, ML, or adjacent technologies. General tech news, unrelated topics, off-topic discussions. (system default)
                       </p>
                     </div>
                   </div>
@@ -642,9 +591,8 @@ export default function Settings() {
                         [style]: e.target.value
                       })}
                       rows={4}
-                      style={{ width: '100%', marginBottom: '8px' }}
                     />
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div className="button-group">
                       <button
                         className="btn-primary btn-small"
                         onClick={() => handleSaveArticleStylePrompt(style)}
@@ -912,196 +860,8 @@ export default function Settings() {
                 </div>
               </div>
             </div>
-
-            <div className="collapsible-section">
-              <div
-                className={`collapsible-header ${openSystemSection === 'logs' ? 'active' : ''}`}
-                onClick={() => toggleSystemSection('logs')}
-              >
-                <h3>System Logs</h3>
-                {logStats?.error_count > 0 && (
-                  <span className="error-badge">{logStats.error_count} errors</span>
-                )}
-                <span className="collapsible-icon">▼</span>
-              </div>
-              <div className={`collapsible-content ${openSystemSection === 'logs' ? 'open' : ''}`}>
-                <div className="collapsible-content-inner">
-                  {logStats && (
-                    <div className="log-stats-cards">
-                      <div className="stat-card">
-                        <div className="stat-label">Total Logs</div>
-                        <div className="stat-value">{logStats.total_logs}</div>
-                      </div>
-                      <div className="stat-card">
-                        <div className="stat-label">Errors</div>
-                        <div className="stat-value error">{logStats.error_count}</div>
-                      </div>
-                      <div className="stat-card">
-                        <div className="stat-label">Time Window</div>
-                        <div className="stat-value">{logFilters.hours}h</div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="setting-subgroup">
-                    <h4>Filters</h4>
-                    <div className="log-filters">
-                      <label>
-                        Level:
-                        <select
-                          value={logFilters.level}
-                          onChange={(e) => {
-                            setLogFilters({ ...logFilters, level: e.target.value });
-                            setTimeout(loadLogs, 100);
-                          }}
-                        >
-                          <option value="">All</option>
-                          <option value="DEBUG">DEBUG</option>
-                          <option value="INFO">INFO</option>
-                          <option value="WARNING">WARNING</option>
-                          <option value="ERROR">ERROR</option>
-                          <option value="CRITICAL">CRITICAL</option>
-                        </select>
-                      </label>
-
-                      <label>
-                        Category:
-                        <select
-                          value={logFilters.category}
-                          onChange={(e) => {
-                            setLogFilters({ ...logFilters, category: e.target.value });
-                            setTimeout(loadLogs, 100);
-                          }}
-                        >
-                          <option value="">All</option>
-                          <option value="api">API</option>
-                          <option value="scheduler">Scheduler</option>
-                          <option value="external_api">External API</option>
-                          <option value="database">Database</option>
-                        </select>
-                      </label>
-
-                      <label>
-                        Hours:
-                        <select
-                          value={logFilters.hours}
-                          onChange={(e) => {
-                            const hours = parseInt(e.target.value);
-                            setLogFilters({ ...logFilters, hours });
-                            setTimeout(() => {
-                              loadLogs();
-                              loadLogStats();
-                            }, 100);
-                          }}
-                        >
-                          <option value="1">Last 1 hour</option>
-                          <option value="6">Last 6 hours</option>
-                          <option value="24">Last 24 hours</option>
-                          <option value="72">Last 3 days</option>
-                          <option value="168">Last 7 days</option>
-                        </select>
-                      </label>
-
-                      <button
-                        className="btn-secondary btn-small"
-                        onClick={() => {
-                          loadLogs();
-                          loadLogStats();
-                        }}
-                      >
-                        Refresh
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="setting-subgroup">
-                    <h4>Recent Logs</h4>
-                    {systemLogs.length > 0 ? (
-                      <div className="logs-table-container">
-                        <table className="logs-table">
-                          <thead>
-                            <tr>
-                              <th>Timestamp</th>
-                              <th>Level</th>
-                              <th>Category</th>
-                              <th>Logger</th>
-                              <th>Message</th>
-                              <th>Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {systemLogs.map((log) => (
-                              <tr
-                                key={log.id}
-                                className={`log-row ${log.level === 'ERROR' || log.level === 'CRITICAL' ? 'log-error' : ''}`}
-                              >
-                                <td className="log-timestamp">
-                                  {new Date(log.timestamp).toLocaleString()}
-                                </td>
-                                <td>
-                                  <span className={`level-badge level-${log.level.toLowerCase()}`}>
-                                    {log.level}
-                                  </span>
-                                </td>
-                                <td>{log.category || 'N/A'}</td>
-                                <td className="log-logger">{log.logger_name}</td>
-                                <td className="log-message">{log.message}</td>
-                                <td>
-                                  <button
-                                    className="btn-secondary btn-small"
-                                    onClick={() => setSelectedLogDetail(log)}
-                                  >
-                                    Details
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p className="help-text">No logs found for the selected filters.</p>
-                    )}
-                  </div>
-
-                  <div className="setting-subgroup">
-                    <h4>Log Cleanup</h4>
-                    <p>Delete logs older than a specified number of days.</p>
-                    <div className="log-cleanup-controls">
-                      <label>
-                        Days to retain:
-                        <input
-                          type="number"
-                          min="7"
-                          max="90"
-                          value={logCleanupDays}
-                          onChange={(e) => setLogCleanupDays(parseInt(e.target.value))}
-                        />
-                      </label>
-                      <button
-                        className="operation-button"
-                        onClick={handleLogCleanup}
-                        disabled={operationFeedback !== null}
-                      >
-                        Cleanup Old Logs
-                      </button>
-                    </div>
-                    <p className="help-text">
-                      This will delete all logs older than {logCleanupDays} days. Minimum 7 days retention.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
         </section>
       </div>
-
-      {selectedLogDetail && (
-        <LogDetailModal
-          log={selectedLogDetail}
-          onClose={() => setSelectedLogDetail(null)}
-        />
-      )}
     </div>
   );
 }

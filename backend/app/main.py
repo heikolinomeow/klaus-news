@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.api import posts, articles
-from app.database import engine, Base, initialize_default_settings
+from app.database import engine, Base, initialize_default_settings, run_migrations
 from app.models import Post, Article, ListMetadata, SystemSettings
 from app.models.group_research import GroupResearch
 from app.models.group_articles import GroupArticle
@@ -16,19 +16,18 @@ def seed_or_upgrade_prompts():
     from sqlalchemy import select, func
     from app.models.prompt import Prompt
 
-    RESEARCH_PROMPT_TEXT = """Research this story to help write an article that answers: "How does this help me work better with AI?"
+    RESEARCH_PROMPT_TEXT = """Research this story for a news article. Focus ONLY on what's new.
 
-**Story:** {{TITLE}}
-**Details:** {{SUMMARY}}
+**Topic:** {{TITLE}}
+**Context:** {{SUMMARY}}
 
-Use web search to find:
-- What's actually new or different here
-- Real-world examples of people/companies benefiting
-- Step-by-step applications if any exist
-- Honest assessment of limitations
-- Links to try it yourself (tools, demos, papers)
+Find and report:
+- What exactly is new/different (specifics, not vague claims)
+- Technical details, numbers, benchmarks if available
+- Who's affected and why it matters
+- Official sources, announcements, or documentation
 
-Write for someone with 5 minutes who wants to know if this matters."""
+Skip: history, background, old versions, speculation. Only news and deep facts. No padding—just what's new and sourced. Every sentence should add information."""
 
     db = Session(bind=engine)
     try:
@@ -36,7 +35,7 @@ Write for someone with 5 minutes who wants to know if this matters."""
         if existing_count == 0:
             defaults = [
                 {"prompt_key": "categorize_post", "prompt_text": "You are categorizing social media posts about AI. Read the post carefully and assign it to exactly ONE category based on the primary topic. Consider the main subject matter, not peripheral mentions.\n\nCategorize into one of the following categories:\n{{CATEGORIES}}\n\nReturn ONLY the category name, nothing else.", "model": "gpt-5-mini", "temperature": 0.3, "max_tokens": 50, "description": "Post categorization prompt (uses {{CATEGORIES}} placeholder)"},
-                {"prompt_key": "score_worthiness", "prompt_text": "Rate this post's value for an e-commerce team improving their AI skills (0.0-1.0). High scores for: new AI models/tools, practical AI applications, actionable AI techniques, breaking AI news. Low scores for: opinion pieces, hype without substance, non-actionable content. Return ONLY a number.", "model": "gpt-5-mini", "temperature": 0.3, "max_tokens": 50, "description": "AI worthiness scoring for e-commerce AI upskilling"},
+                {"prompt_key": "score_worthiness", "prompt_text": "Score this post's value as AI content (0.0-1.0).\n\nScore HIGH if: announces something new, teaches something useful, shares a tool/paper/resource, reports news with facts.\n\nScore LOW if: off-topic (not AI), vague hype (\"AI will change everything!\"), engagement bait (\"thoughts?\"), memes, spam, no real information.\n\nReturn ONLY a decimal number.", "model": "gpt-5-mini", "temperature": 0.3, "max_tokens": 50, "description": "AI content quality scoring (filters noise, spam, off-topic)"},
                 {"prompt_key": "detect_duplicate", "prompt_text": "Rate how similar these two news headlines are on a scale from 0.0 to 1.0, where 0.0 means completely different topics and 1.0 means they describe the exact same news story. Return ONLY a number.", "model": "gpt-5-mini", "temperature": 0.0, "max_tokens": 10, "description": "AI duplicate detection (returns similarity score 0.0-1.0)"},
                 {"prompt_key": "research_prompt", "prompt_text": RESEARCH_PROMPT_TEXT, "model": "gpt-5-search-api", "temperature": 0.7, "max_tokens": 4000, "description": "Research prompt for web search (uses {{TITLE}} and {{SUMMARY}} placeholders)"}
             ]
@@ -56,7 +55,7 @@ Write for someone with 5 minutes who wants to know if this matters."""
                 db.commit()
                 print("✓ Upgraded categorize_post prompt to use {{CATEGORIES}} placeholder")
 
-            # Ensure research_prompt exists (for existing installs)
+            # Ensure research_prompt exists AND is up-to-date (for existing installs)
             research_prompt = db.execute(
                 select(Prompt).where(Prompt.prompt_key == "research_prompt")
             ).scalar_one_or_none()
@@ -71,6 +70,12 @@ Write for someone with 5 minutes who wants to know if this matters."""
                 ))
                 db.commit()
                 print("✓ Added research_prompt to existing prompts")
+            elif "Focus ONLY on what's new" not in research_prompt.prompt_text:
+                # Upgrade stale research prompt to newer version
+                research_prompt.prompt_text = RESEARCH_PROMPT_TEXT
+                research_prompt.model = "gpt-5-search-api"
+                db.commit()
+                print("✓ Upgraded research_prompt to newer version")
     finally:
         db.close()
 
@@ -139,6 +144,8 @@ from app.services.logging_config import setup_logging
 async def startup_event():
     # Create database tables
     Base.metadata.create_all(bind=engine)
+    # Run pending migrations
+    run_migrations()
     # Initialize default settings (V-21)
     initialize_default_settings()
     # Auto-seed prompts (V-22)

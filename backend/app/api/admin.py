@@ -42,9 +42,16 @@ async def trigger_ingestion_manually(db: Session = Depends(get_db)):
             elif stats['posts_fetched'] == 0:
                 message = "No new posts found (no posts fetched from X)"
             else:
-                message = f"No new posts added ({stats['duplicates_skipped']} duplicates skipped)"
+                skipped_parts = []
+                if stats['duplicates_skipped'] > 0:
+                    skipped_parts.append(f"{stats['duplicates_skipped']} duplicates")
+                if stats.get('low_worthiness_skipped', 0) > 0:
+                    skipped_parts.append(f"{stats['low_worthiness_skipped']} low-worthiness")
+                message = f"No new posts added ({', '.join(skipped_parts)} skipped)"
         else:
             message = f"Added {stats['new_posts_added']} new post(s) from {stats['lists_processed']} list(s)"
+            if stats.get('low_worthiness_skipped', 0) > 0:
+                message += f" ({stats['low_worthiness_skipped']} low-worthiness skipped)"
 
         return {
             "message": message,
@@ -209,6 +216,25 @@ async def resume_scheduler(db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to resume scheduler: {str(e)}")
+
+
+@router.get("/ingestion-progress")
+async def get_ingestion_progress():
+    """Get real-time progress of current ingestion job
+
+    This endpoint returns detailed progress information for any running
+    ingestion job, allowing the frontend to display a progress bar.
+
+    **Returns:**
+    - is_running: Whether an ingestion is currently running
+    - progress_percent: Overall progress (0-100)
+    - current_step: Current processing step (categorizing, scoring, etc.)
+    - posts_added: Running total of posts added
+    - And more detailed progress info
+    """
+    from app.services.progress_tracker import progress_tracker
+
+    return progress_tracker.get_status()
 
 
 @router.get("/archive-preview")

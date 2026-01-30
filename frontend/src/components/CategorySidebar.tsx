@@ -24,7 +24,6 @@ const CategorySidebar: React.FC<CategorySidebarProps> = ({
   selectedCategory,
   onSelectCategory,
   groupCounts = {},
-  totalCount = 0,
   worthinessThreshold,
   minSourcesThreshold,
   onWorthinessChange,
@@ -71,16 +70,6 @@ const CategorySidebar: React.FC<CategorySidebarProps> = ({
           <div className="sidebar-divider" />
         </>
       )}
-
-      <div
-        className={`sidebar-item ${selectedCategory === null ? 'active' : ''}`}
-        onClick={() => onSelectCategory(null)}
-      >
-        <span>All</span>
-        {totalCount > 0 && <span className="sidebar-count">{totalCount}</span>}
-      </div>
-
-      <div className="sidebar-divider" />
 
       {sortedCategories.map((category) => (
         <div key={category.id} className="sidebar-category-block">

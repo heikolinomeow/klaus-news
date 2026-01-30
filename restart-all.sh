@@ -15,10 +15,10 @@ echo ""
 echo "🗑️  Removing old images..."
 docker rmi klaus-news-frontend klaus-news-backend 2>/dev/null || true
 
-# Clear build cache for clean builds
+# Clear build cache for clean builds (keep 2GB of recent cache)
 echo ""
 echo "🧹 Clearing Docker build cache..."
-docker builder prune -f --filter "until=24h" 2>/dev/null || true
+docker buildx prune -f --reserved-space 2GB 2>/dev/null || true
 
 # Rebuild frontend
 echo ""

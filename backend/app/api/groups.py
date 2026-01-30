@@ -153,7 +153,7 @@ async def transition_group_state(
     VALID_STATES = {'NEW', 'COOKING', 'REVIEW', 'PUBLISHED'}
     VALID_TRANSITIONS = {
         'NEW': ['COOKING'],
-        'COOKING': ['REVIEW'],
+        'COOKING': ['REVIEW', 'NEW'],  # NEW allows "remove from cooking"
         'REVIEW': ['PUBLISHED', 'COOKING'],
         'PUBLISHED': []
     }
@@ -171,6 +171,18 @@ async def transition_group_state(
             status_code=400,
             detail=f"Invalid transition from {current_state} to {target_state}"
         )
+
+    # Validate COOKING → REVIEW transition requires at least one article
+    if current_state == 'COOKING' and target_state == 'REVIEW':
+        from app.models.group_articles import GroupArticle
+        article_count = db.execute(
+            select(GroupArticle).where(GroupArticle.group_id == group_id)
+        ).scalars().all()
+        if len(article_count) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot move to Serving. Please generate at least one article first."
+            )
 
     db.execute(
         update(Group).where(Group.id == group_id).values(state=target_state)

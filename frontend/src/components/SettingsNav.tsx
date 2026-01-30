@@ -6,8 +6,8 @@ export default function SettingsNav() {
   return (
     <nav className="settings-nav">
       <Link
-        to="/settings/system"
-        className={location.pathname === '/settings/system' ? 'active' : ''}
+        to="/kitchen/system"
+        className={location.pathname === '/kitchen/system' || location.pathname === '/settings/system' ? 'active' : ''}
       >
         System
       </Link>

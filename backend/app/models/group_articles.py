@@ -18,7 +18,11 @@ class GroupArticle(Base):
 
     # Article content
     title = Column(String, nullable=True)  # Article title (nullable for backwards compatibility)
+    preview = Column(Text, nullable=True)  # Short preview/teaser for Teams card (editable)
     content = Column(Text, nullable=False)  # Plain text article
+
+    # Teams integration
+    posted_to_teams = Column(DateTime, nullable=True)  # When posted to Teams (null if not posted)
 
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())

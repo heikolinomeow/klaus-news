@@ -2,10 +2,201 @@
 import json
 import logging
 import httpx
+import re
+from html import unescape
 from typing import Optional
 from app.config import settings
 
 logger = logging.getLogger('klaus_news.teams_service')
+
+
+def html_to_plain_text(html: str) -> str:
+    """Convert HTML content to plain text suitable for Teams Adaptive Cards.
+
+    Preserves semantic structure:
+    - <strong>/<b> → **bold**
+    - <em>/<i> → _italic_
+    - <p> → double newline
+    - <br> → single newline
+    - <li> → bullet point
+    - <h1-h6> → **Header**
+    """
+    if not html or '<' not in html:
+        return html  # No HTML tags, return as-is
+
+    text = html
+
+    # Convert headers to bold markdown
+    text = re.sub(r'<h[1-6][^>]*>(.*?)</h[1-6]>', r'**\1**\n', text, flags=re.IGNORECASE | re.DOTALL)
+
+    # Convert bold tags to markdown
+    text = re.sub(r'<(strong|b)[^>]*>(.*?)</\1>', r'**\2**', text, flags=re.IGNORECASE | re.DOTALL)
+
+    # Convert italic tags to markdown
+    text = re.sub(r'<(em|i)[^>]*>(.*?)</\1>', r'_\2_', text, flags=re.IGNORECASE | re.DOTALL)
+
+    # Convert list items to bullet points
+    text = re.sub(r'<li[^>]*>(.*?)</li>', r'• \1\n', text, flags=re.IGNORECASE | re.DOTALL)
+
+    # Convert paragraph and div to double newline
+    text = re.sub(r'</p>\s*', '\n\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'<p[^>]*>', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'</div>\s*', '\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'<div[^>]*>', '', text, flags=re.IGNORECASE)
+
+    # Convert br to single newline
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+
+    # Remove remaining HTML tags
+    text = re.sub(r'<[^>]+>', '', text)
+
+    # Decode HTML entities
+    text = unescape(text)
+
+    # Clean up excessive whitespace
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r' +', ' ', text)
+
+    return text.strip()
+
+
+def parse_article_content(content: str) -> list[dict]:
+    """Parse article content into structured blocks for Adaptive Card rendering.
+
+    Detects:
+    - Headers: **Text** or **Text:** patterns
+    - Bullets: lines starting with •, -, or *
+    - Regular paragraphs
+
+    Returns list of blocks: {type: 'header'|'paragraph'|'bullets', content: str|list}
+    """
+    blocks = []
+    lines = content.split('\n')
+    current_bullets = []
+
+    def flush_bullets():
+        nonlocal current_bullets
+        if current_bullets:
+            blocks.append({'type': 'bullets', 'content': current_bullets})
+            current_bullets = []
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # Skip empty lines
+        if not line:
+            flush_bullets()
+            i += 1
+            continue
+
+        # Check for header pattern: **Header** or **Header:**
+        header_match = re.match(r'^\*\*(.+?)\*\*:?\s*$', line)
+        if header_match:
+            flush_bullets()
+            blocks.append({'type': 'header', 'content': header_match.group(1).strip()})
+            i += 1
+            continue
+
+        # Check for inline header at start of paragraph: **Header:** rest of text
+        inline_header_match = re.match(r'^\*\*(.+?):\*\*\s*(.+)$', line)
+        if inline_header_match:
+            flush_bullets()
+            blocks.append({'type': 'header', 'content': inline_header_match.group(1).strip()})
+            # Add the rest as a paragraph
+            rest = inline_header_match.group(2).strip()
+            if rest:
+                blocks.append({'type': 'paragraph', 'content': rest})
+            i += 1
+            continue
+
+        # Check for bullet point
+        bullet_match = re.match(r'^[•\-\*]\s*(.+)$', line)
+        if bullet_match:
+            current_bullets.append(bullet_match.group(1).strip())
+            i += 1
+            continue
+
+        # Regular paragraph - collect consecutive non-empty, non-bullet lines
+        flush_bullets()
+        para_lines = [line]
+        i += 1
+        while i < len(lines):
+            next_line = lines[i].strip()
+            # Stop if empty, bullet, or header
+            if not next_line or re.match(r'^[•\-\*]\s', next_line) or re.match(r'^\*\*.+\*\*', next_line):
+                break
+            para_lines.append(next_line)
+            i += 1
+
+        blocks.append({'type': 'paragraph', 'content': ' '.join(para_lines)})
+
+    flush_bullets()
+    return blocks
+
+
+def build_adaptive_card_body(blocks: list[dict]) -> list[dict]:
+    """Convert parsed blocks into Adaptive Card body elements."""
+    body = []
+
+    for i, block in enumerate(blocks):
+        spacing = "Medium" if i > 0 else "None"
+
+        if block['type'] == 'header':
+            body.append({
+                "type": "TextBlock",
+                "text": block['content'],
+                "weight": "Bolder",
+                "size": "Medium",
+                "wrap": True,
+                "spacing": spacing
+            })
+
+        elif block['type'] == 'paragraph':
+            body.append({
+                "type": "TextBlock",
+                "text": block['content'],
+                "wrap": True,
+                "spacing": "Small" if i > 0 else "None"
+            })
+
+        elif block['type'] == 'bullets':
+            # Create a container for bullet items
+            bullet_items = []
+            for j, item in enumerate(block['content']):
+                bullet_items.append({
+                    "type": "ColumnSet",
+                    "spacing": "Small" if j > 0 else "None",
+                    "columns": [
+                        {
+                            "type": "Column",
+                            "width": "auto",
+                            "items": [{
+                                "type": "TextBlock",
+                                "text": "•",
+                                "spacing": "None"
+                            }]
+                        },
+                        {
+                            "type": "Column",
+                            "width": "stretch",
+                            "items": [{
+                                "type": "TextBlock",
+                                "text": item,
+                                "wrap": True,
+                                "spacing": "None"
+                            }]
+                        }
+                    ]
+                })
+
+            body.append({
+                "type": "Container",
+                "spacing": spacing,
+                "items": bullet_items
+            })
+
+    return body
 
 
 def get_channels() -> list[dict]:
@@ -45,6 +236,14 @@ def _get_channel_webhook(channel_name: str) -> Optional[str]:
 def build_payload(title: str, summary: str, full_text: str | None = None):
     full_text = full_text or summary  # fallback
 
+    # Convert HTML to plain text before parsing (content may contain HTML from editor)
+    plain_text = html_to_plain_text(full_text)
+    summary = html_to_plain_text(summary)
+
+    # Parse the full article content into structured blocks
+    parsed_blocks = parse_article_content(plain_text)
+    article_body = build_adaptive_card_body(parsed_blocks)
+
     return {
         "type": "message",
         "attachments": [
@@ -57,60 +256,94 @@ def build_payload(title: str, summary: str, full_text: str | None = None):
                     "version": "1.3",
                     "msteams": {"width": "Full"},
                     "body": [
-                        # Header band (small JSON, big visual improvement)
+                        # Header band with visual hierarchy
                         {
                             "type": "Container",
-                            "style": "emphasis",
+                            "style": "accent",
                             "bleed": True,
                             "items": [
                                 {
-                                    "type": "TextBlock",
-                                    "text": "🤖  Klaus News",
-                                    "weight": "Bolder",
-                                    "size": "Medium",
-                                    "spacing": "None"
+                                    "type": "ColumnSet",
+                                    "columns": [
+                                        {
+                                            "type": "Column",
+                                            "width": "auto",
+                                            "items": [
+                                                {
+                                                    "type": "TextBlock",
+                                                    "text": "📰",
+                                                    "size": "Large",
+                                                    "spacing": "None"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "type": "Column",
+                                            "width": "stretch",
+                                            "items": [
+                                                {
+                                                    "type": "TextBlock",
+                                                    "text": "Klaus News",
+                                                    "weight": "Bolder",
+                                                    "size": "Medium",
+                                                    "color": "Light",
+                                                    "spacing": "None"
+                                                }
+                                            ]
+                                        }
+                                    ]
                                 }
                             ]
                         },
 
-                        # Title
+                        # Title with more prominence
                         {
                             "type": "TextBlock",
                             "text": title,
                             "weight": "Bolder",
-                            "size": "Large",
+                            "size": "ExtraLarge",
                             "wrap": True,
                             "spacing": "Medium"
                         },
 
-                        # Short preview (prevents ugly truncation)
+                        # Preview with subtle background
                         {
-                            "type": "TextBlock",
-                            "text": summary,
-                            "wrap": True,
-                            "maxLines": 3,
-                            "spacing": "Small"
+                            "type": "Container",
+                            "style": "emphasis",
+                            "spacing": "Medium",
+                            "items": [
+                                {
+                                    "type": "TextBlock",
+                                    "text": summary,
+                                    "wrap": True,
+                                    "maxLines": 3,
+                                    "isSubtle": True,
+                                    "spacing": "Small"
+                                }
+                            ]
                         },
 
-                        # Hidden details block (expand)
+                        # Separator line
+                        {
+                            "type": "Container",
+                            "separator": True,
+                            "spacing": "Small",
+                            "items": []
+                        },
+
+                        # Hidden details block (expandable) - now with parsed content
                         {
                             "type": "Container",
                             "id": "details",
                             "isVisible": False,
                             "spacing": "Medium",
-                            "items": [
-                                {
-                                    "type": "TextBlock",
-                                    "text": full_text,
-                                    "wrap": True
-                                }
-                            ]
+                            "items": article_body
                         }
                     ],
                     "actions": [
                         {
                             "type": "Action.ToggleVisibility",
-                            "title": "Show details",
+                            "title": "📖 Read Full Article",
                             "targetElements": ["details"]
                         }
                     ]
@@ -150,17 +383,20 @@ async def send_to_teams(article_id: str, channel_name: str, db) -> dict:
         ).scalar_one_or_none()
 
         if group_article:
-            # Get related Group for title
+            # Get related Group for fallback title
             group = db.execute(
                 select(Group).where(Group.id == group_article.group_id)
             ).scalar_one_or_none()
 
-            # Truncate content for summary (max 500 chars)
             content = group_article.content or ""
-            summary = content[:500] + "..." if len(content) > 500 else content
+            # Use preview if set, otherwise fall back to truncated content
+            if group_article.preview:
+                summary = group_article.preview
+            else:
+                summary = content[:500] + "..." if len(content) > 500 else content
 
             article_data = {
-                "title": group.representative_title if group else "Untitled",
+                "title": group_article.title or (group.representative_title if group else "Untitled"),
                 "summary": summary,
                 "full_text": content,  # Pass full content for expandable view
                 "category": group.category if group else None,
@@ -222,6 +458,18 @@ async def send_to_teams(article_id: str, channel_name: str, db) -> dict:
             # Accept both 200 (OK) and 202 (Accepted) as success
             # Power Automate workflows return 202 when message is queued for delivery
             if response.status_code in (200, 202):
+                # Update GroupArticle posted_to_teams timestamp if applicable
+                if group_article:
+                    from datetime import datetime
+                    group_article.posted_to_teams = datetime.now()
+
+                    # Transition group to PUBLISHED so it disappears from Serving
+                    # (group and posts remain in DB for duplicate detection)
+                    if group:
+                        group.state = 'PUBLISHED'
+
+                    db.commit()
+
                 logger.info(f"Article sent to Teams channel #{channel_name}")
                 return {"success": True, "message": f"Article sent to #{channel_name}"}
             else:

@@ -4,12 +4,19 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from typing import Optional
+import re
 
 from app.database import get_db
 from app.models.group import Group
 
 
 router = APIRouter()
+
+
+def strip_html_tags(text: str) -> str:
+    """Remove HTML tags from text (AI sometimes adds them despite plain text instruction)"""
+    # Remove HTML tags while preserving content
+    return re.sub(r'<[^>]+>', '', text)
 
 
 class GenerateArticleRequest(BaseModel):
@@ -24,6 +31,7 @@ class RefineArticleRequest(BaseModel):
 class UpdateArticleRequest(BaseModel):
     content: str
     title: Optional[str] = None
+    preview: Optional[str] = None
 
 
 @router.post("/{group_id}/article/")
@@ -62,10 +70,11 @@ async def generate_article(
     ).scalars().first()
 
     # Get prompt based on style
-    if request.style == "custom":
-        if not request.custom_prompt:
-            raise HTTPException(status_code=400, detail="Custom prompt required for custom style")
+    # If custom_prompt is provided, use it regardless of style (allows editing preset prompts)
+    if request.custom_prompt:
         style_prompt = request.custom_prompt
+    elif request.style == "custom":
+        raise HTTPException(status_code=400, detail="Custom prompt required for custom style")
     else:
         key = f'article_prompt_{request.style}'
         setting = db.execute(
@@ -105,6 +114,9 @@ Start with a compelling headline, then write the article content."""
 
     content = response.choices[0].message.content.strip()
 
+    # Strip any HTML tags the AI might have added (despite plain text instruction)
+    content = strip_html_tags(content)
+
     # Extract title from first line if it looks like a headline
     title = None
     lines = content.split('\n', 1)
@@ -125,9 +137,8 @@ Start with a compelling headline, then write the article content."""
     )
     db.add(article)
 
-    # Transition group to REVIEW state (V-3)
-    from sqlalchemy import update
-    db.execute(update(Group).where(Group.id == group_id).values(state='REVIEW'))
+    # NOTE: Group stays in COOKING state - user manually transitions to REVIEW when ready
+    # This allows generating multiple articles and refining before moving to Serving page
 
     db.commit()
     db.refresh(article)
@@ -138,7 +149,9 @@ Start with a compelling headline, then write the article content."""
             "group_id": article.group_id,
             "style": article.style,
             "title": article.title,
+            "preview": article.preview,
             "content": article.content,
+            "posted_to_teams": article.posted_to_teams.isoformat() if article.posted_to_teams else None,
             "created_at": article.created_at.isoformat() if article.created_at else None
         }
     }
@@ -165,7 +178,9 @@ async def get_all_articles(
                 "group_id": a.group_id,
                 "style": a.style,
                 "title": a.title,
+                "preview": a.preview,
                 "content": a.content,
+                "posted_to_teams": a.posted_to_teams.isoformat() if a.posted_to_teams else None,
                 "created_at": a.created_at.isoformat() if a.created_at else None,
                 "updated_at": a.updated_at.isoformat() if a.updated_at else None
             }
@@ -198,7 +213,9 @@ async def get_article(
             "group_id": article.group_id,
             "style": article.style,
             "title": article.title,
+            "preview": article.preview,
             "content": article.content,
+            "posted_to_teams": article.posted_to_teams.isoformat() if article.posted_to_teams else None,
             "created_at": article.created_at.isoformat() if article.created_at else None,
             "updated_at": article.updated_at.isoformat() if article.updated_at else None
         }
@@ -225,10 +242,20 @@ async def update_article(
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
 
-    # Update article content and title
-    update_values = {"content": request.content}
+    # For user-edited content from WYSIWYG editor, preserve HTML formatting
+    # Only strip truly dangerous tags, keep formatting tags
+    import bleach
+    allowed_tags = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'h1', 'h2', 'h3', 'h4',
+                    'ul', 'ol', 'li', 'a', 'blockquote', 'code', 'pre', 'span']
+    allowed_attrs = {'a': ['href', 'target', 'rel'], 'span': ['class']}
+    cleaned_content = bleach.clean(request.content, tags=allowed_tags, attributes=allowed_attrs, strip=True)
+
+    # Update article content, title, and preview
+    update_values = {"content": cleaned_content}
     if request.title is not None:
         update_values["title"] = request.title
+    if request.preview is not None:
+        update_values["preview"] = request.preview
 
     db.execute(
         update(GroupArticle)
@@ -244,7 +271,9 @@ async def update_article(
             "group_id": article.group_id,
             "style": article.style,
             "title": article.title,
-            "content": request.content
+            "preview": article.preview,
+            "content": cleaned_content,
+            "posted_to_teams": article.posted_to_teams.isoformat() if article.posted_to_teams else None
         }
     }
 
@@ -324,6 +353,9 @@ Output the refined article as plain text with paragraphs."""
 
     new_content = response.choices[0].message.content.strip()
 
+    # Strip any HTML tags the AI might have added
+    new_content = strip_html_tags(new_content)
+
     # Extract title from refined content
     new_title = None
     lines = new_content.split('\n', 1)
@@ -347,6 +379,8 @@ Output the refined article as plain text with paragraphs."""
             "group_id": article.group_id,
             "style": article.style,
             "title": article.title,
-            "content": new_content
+            "preview": article.preview,
+            "content": new_content,
+            "posted_to_teams": article.posted_to_teams.isoformat() if article.posted_to_teams else None
         }
     }

@@ -17,7 +17,7 @@ class OpenAIClient:
 
     def __init__(self, db=None):
         self.api_key = settings.openai_api_key
-        self.model = "gpt-4o"  # Default model
+        self.model = "gpt-5-mini"  # Default model - reasoning model for title/summary generation
         self.db = db
         # Import here to avoid circular dependencies
         if db:
@@ -92,18 +92,19 @@ class OpenAIClient:
         })
 
         try:
+            # NOTE: gpt-5-mini is a reasoning model that only supports temperature=1 (default)
+            # Do not specify temperature parameter - see GOTCHAS.md "gpt-5-mini Temperature Limitation"
+            # Reasoning models need extra tokens for internal thinking
             title_response = await client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": title_prompt}],
-                temperature=0.5,
-                max_completion_tokens=30
+                max_completion_tokens=1000
             )
 
             summary_response = await client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": summary_prompt}],
-                temperature=0.5,
-                max_completion_tokens=100
+                max_completion_tokens=1000
             )
 
             title = title_response.choices[0].message.content.strip().strip('"').strip("'")[:100]
@@ -286,6 +287,26 @@ class OpenAIClient:
         STCC-8 Safety: Works with or without V-4's _get_prompt method via hasattr check.
         """
         from openai import AsyncOpenAI, APIError
+
+        # Early detection of error content - return 0.0 immediately
+        error_indicators = [
+            "i'm sorry",
+            "i cannot access",
+            "can't access",
+            "cannot access external",
+            "please provide more details",
+            "unable to access",
+            "error fetching",
+            "i apologize",
+            "i don't have access",
+        ]
+        post_lower = post_text.lower()
+        if any(indicator in post_lower for indicator in error_indicators):
+            logger.info("Detected error content in post, assigning score 0.0", extra={
+                'operation': 'score_worthiness',
+                'post_snippet': post_text[:100]
+            })
+            return 0.0
 
         # Get prompt config - try database first, then fallback to hardcoded
         prompt_config = None
@@ -562,8 +583,8 @@ class OpenAIClient:
         sorted_categories = sorted(categories, key=lambda x: x.get("order", 0))
         lines = [f"- {cat['name']}: {cat['description']}" for cat in sorted_categories]
 
-        # Add hardcoded "Other" (always last)
-        lines.append("- Other: Posts that don't clearly fit the above categories")
+        # Add hardcoded "Other" (always last - fallback category)
+        lines.append("- Other: Content not related to artificial intelligence, machine learning, or adjacent technologies. General tech news, unrelated industry topics, personal opinions without AI relevance, spam, off-topic discussions, or content that does not fit any AI-focused category.")
 
         formatted = "\n".join(lines)
 

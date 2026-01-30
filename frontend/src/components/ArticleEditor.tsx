@@ -13,33 +13,59 @@ interface ArticleEditorProps {
 function ArticleEditor({ content, onChange }: ArticleEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const quillRef = useRef<Quill | null>(null);
+  const onChangeRef = useRef(onChange);
+  const isInternalChange = useRef(false);
 
+  // Keep onChange ref up to date
+  onChangeRef.current = onChange;
+
+  // Initialize Quill editor once on mount
   useEffect(() => {
-    if (editorRef.current && !quillRef.current) {
-      quillRef.current = new Quill(editorRef.current, {
-        theme: 'snow',
-        modules: {
-          toolbar: [
-            [{ header: [1, 2, 3, false] }],
-            ['bold', 'italic', 'underline'],
-            ['link'],
-            [{ list: 'ordered' }, { list: 'bullet' }],
-            ['clean']
-          ]
-        }
-      });
+    if (!editorRef.current || quillRef.current) return;
 
-      quillRef.current.on('text-change', () => {
-        if (quillRef.current) {
-          onChange(quillRef.current.root.innerHTML);
-        }
-      });
+    const quill = new Quill(editorRef.current, {
+      theme: 'snow',
+      modules: {
+        toolbar: [
+          [{ header: [1, 2, 3, false] }],
+          ['bold', 'italic', 'underline'],
+          ['link'],
+          [{ list: 'ordered' }, { list: 'bullet' }],
+          ['clean']
+        ]
+      }
+    });
+
+    // Set initial content using Quill's clipboard API
+    if (content) {
+      quill.clipboard.dangerouslyPasteHTML(content);
     }
 
-    if (quillRef.current && content) {
-      quillRef.current.root.innerHTML = content;
+    quill.on('text-change', () => {
+      isInternalChange.current = true;
+      onChangeRef.current(quill.root.innerHTML);
+    });
+
+    quillRef.current = quill;
+
+    return () => {
+      quillRef.current = null;
+    };
+  }, []); // Empty deps - only run on mount
+
+  // Handle external content changes (e.g., switching articles)
+  useEffect(() => {
+    if (!quillRef.current) return;
+    if (isInternalChange.current) {
+      isInternalChange.current = false;
+      return;
     }
-  }, [content, onChange]);
+    // External change - update editor content
+    const currentHtml = quillRef.current.root.innerHTML;
+    if (content !== currentHtml) {
+      quillRef.current.clipboard.dangerouslyPasteHTML(content || '');
+    }
+  }, [content]);
 
   return <div ref={editorRef} />;
 }

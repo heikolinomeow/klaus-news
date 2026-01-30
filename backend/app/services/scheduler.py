@@ -49,6 +49,7 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
     from app.database import SessionLocal
     from sqlalchemy import select
     from app.services.settings_service import SettingsService  # V-27
+    from app.services.progress_tracker import progress_tracker
 
     logger.info(f"Starting {trigger_source} post ingestion job", extra={'trigger_source': trigger_source})
 
@@ -60,6 +61,7 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
         'posts_fetched': 0,
         'new_posts_added': 0,
         'duplicates_skipped': 0,
+        'low_worthiness_skipped': 0,
         'api_errors': 0,
         'last_api_error': None  # Store most recent API error details
     }
@@ -86,13 +88,20 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
             select(ListMetadata).where(ListMetadata.enabled == True)
         ).scalars().all()
 
-        for list_meta in enabled_lists:
+        # Start progress tracking
+        progress_tracker.start(trigger_source, len(enabled_lists))
+
+        for list_idx, list_meta in enumerate(enabled_lists, 1):
             stats['lists_processed'] += 1
             list_id = list_meta.list_id
             since_id = list_meta.last_tweet_id
 
+            # Update progress: current list
+            progress_tracker.set_current_list(list_idx, list_meta.list_name or f"List {list_id}")
+
             # 2. Fetch posts from each list (V-27: use dynamic posts_per_fetch)
             try:
+                progress_tracker.set_step("fetching")
                 raw_posts = await x_client.fetch_posts_from_list(
                     list_id,
                     max_results=posts_per_fetch,
@@ -108,6 +117,7 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                         'status_code': e.status_code,
                         'message': str(e)
                     }
+                    progress_tracker.error()
                     logger.warning(f"X API error for list {list_id}, skipping", extra={
                         'list_id': list_id,
                         'status_code': e.status_code
@@ -127,7 +137,13 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                 max_tweet_id = max(raw_posts, key=lambda p: int(p["id"]))["id"]
                 list_meta.last_tweet_id = max_tweet_id
 
-            for raw_post in raw_posts:
+            # Update progress: posts to process
+            progress_tracker.set_posts_to_process(len(raw_posts))
+
+            for post_idx, raw_post in enumerate(raw_posts, 1):
+                # Update progress: start processing this post
+                progress_tracker.start_post(post_idx)
+
                 # Check if post_id already exists (skip duplicates)
                 existing = db.execute(
                     select(Post).where(Post.post_id == raw_post['id'])
@@ -135,20 +151,54 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
 
                 if existing:
                     stats['duplicates_skipped'] += 1
+                    progress_tracker.post_skipped()
+                    continue
+
+                # Skip link-only posts (URLs with minimal text content)
+                import re
+                post_text = raw_post['text']
+                # Remove URLs from text to check remaining content
+                text_without_urls = re.sub(r'https?://\S+', '', post_text).strip()
+                # Skip if remaining text is too short (< 20 chars = likely just "Check this out" or similar)
+                if len(text_without_urls) < 20:
+                    logger.info("Skipping link-only post", extra={
+                        'post_id': raw_post['id'],
+                        'original_length': len(post_text),
+                        'text_without_urls': text_without_urls[:50]
+                    })
+                    stats['duplicates_skipped'] += 1  # Count as skipped
+                    progress_tracker.post_skipped()
                     continue
 
                 # 3. Process each post: categorize, generate title/summary, score
+                progress_tracker.set_step("categorizing")
                 cat_result = await openai_client.categorize_post(raw_post['text'])
+
+                progress_tracker.set_step("generating")
                 gen_result = await openai_client.generate_title_and_summary(raw_post['text'])
 
                 # V-6: Use AI worthiness scoring (with static fallback)
+                progress_tracker.set_step("scoring")
                 try:
                     worthiness = await openai_client.score_worthiness(raw_post['text'], db=db)
                 except Exception as e:
                     print(f"AI worthiness failed, using default 0.5: {e}")
                     worthiness = 0.5
 
+                # Skip posts below minimum worthiness threshold (default 0.3)
+                min_worthiness = settings_svc.get('min_worthiness_threshold', 0.3)
+                if worthiness < min_worthiness:
+                    logger.info("Skipping low-worthiness post", extra={
+                        'post_id': raw_post['id'],
+                        'worthiness': worthiness,
+                        'threshold': min_worthiness
+                    })
+                    stats['low_worthiness_skipped'] += 1
+                    progress_tracker.post_skipped()
+                    continue
+
                 # 3b. Topic grouping via AI semantic title comparison
+                progress_tracker.set_step("grouping")
                 # Read duplicate threshold from settings
                 duplicate_threshold = settings_svc.get('duplicate_threshold', 0.85)
 
@@ -199,6 +249,7 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                     group_id = new_group.id
 
                 # 4. Store in database
+                progress_tracker.set_step("storing")
                 new_post = Post(
                     post_id=raw_post['id'],
                     original_text=raw_post['text'],
@@ -213,6 +264,7 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                 )
                 db.add(new_post)
                 stats['new_posts_added'] += 1
+                progress_tracker.post_added()
 
         db.commit()
 
@@ -222,10 +274,17 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
             'lists_processed': stats['lists_processed'],
             'posts_fetched': stats['posts_fetched'],
             'new_posts_added': stats['new_posts_added'],
-            'duplicates_skipped': stats['duplicates_skipped']
+            'duplicates_skipped': stats['duplicates_skipped'],
+            'low_worthiness_skipped': stats['low_worthiness_skipped']
         })
 
+        # Mark progress as finished
+        progress_tracker.finish()
+
         return stats
+    except Exception as e:
+        progress_tracker.finish()
+        raise
     finally:
         db.close()
 

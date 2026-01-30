@@ -48,8 +48,8 @@ class XClient:
         }
         params = {
             "max_results": max_results,
-            "tweet.fields": "created_at,author_id",
-            "expansions": "author_id",
+            "tweet.fields": "created_at,author_id,referenced_tweets",
+            "expansions": "author_id,referenced_tweets.id",
             "user.fields": "username"
         }
 
@@ -71,10 +71,24 @@ class XClient:
             # Build user lookup
             users = {u["id"]: u["username"] for u in data.get("includes", {}).get("users", [])}
 
+            # Build referenced tweets lookup (for full RT text)
+            referenced_tweets = {t["id"]: t["text"] for t in data.get("includes", {}).get("tweets", [])}
+
             for tweet in data.get("data", []):
+                # Get full text: for retweets, use the original tweet's full text
+                text = tweet["text"]
+                ref_tweets = tweet.get("referenced_tweets", [])
+                for ref in ref_tweets:
+                    if ref.get("type") == "retweeted" and ref.get("id") in referenced_tweets:
+                        # Replace truncated RT text with full original
+                        original_author = text.split(":")[0] if text.startswith("RT @") else ""
+                        full_original = referenced_tweets[ref["id"]]
+                        text = f"{original_author}: {full_original}" if original_author else full_original
+                        break
+
                 posts.append({
                     "id": tweet["id"],
-                    "text": tweet["text"],
+                    "text": text,
                     "author": users.get(tweet["author_id"], "unknown"),
                     "created_at": datetime.fromisoformat(tweet["created_at"].replace("Z", "+00:00"))
                 })

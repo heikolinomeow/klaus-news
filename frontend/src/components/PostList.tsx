@@ -1,5 +1,5 @@
 /**
- * PostList component - displays groups as tiles (V-5)
+ * PostList component - displays groups in newspaper layout
  */
 import { useState } from 'react';
 import { Post, Group } from '../types';
@@ -37,68 +37,155 @@ function PostList({ groups, onSelectGroup, onArchiveGroup, isSelecting }: PostLi
     }
   };
 
+  const filterPosts = (posts: Post[] | undefined) => {
+    if (!posts) return [];
+    return posts.filter((post) => {
+      if (post.worthiness_score === 0) return false;
+      const title = (post.ai_title || '').toLowerCase();
+      const errorIndicators = ["i'm sorry", "cannot access", "can't access", "please provide"];
+      return !errorIndicators.some(indicator => title.includes(indicator));
+    });
+  };
+
   if (groups.length === 0) {
-    return <div className="post-list-empty">No stories match the current filters</div>;
+    return (
+      <div className="newspaper-layout">
+        <div className="post-list-empty" style={{
+          fontFamily: 'var(--font-body)',
+          fontStyle: 'italic',
+          color: 'var(--ink-gray)',
+          textAlign: 'center',
+          padding: '60px 20px'
+        }}>
+          No stories match the current filters
+        </div>
+      </div>
+    );
   }
 
+  // Split into hero, secondary, and standard articles
+  const heroStory = groups[0];
+  const secondaryStories = groups.slice(1, 3);
+  const standardStories = groups.slice(3);
+
+  const renderArticleActions = (group: Group) => (
+    <div className="article-actions">
+      <button
+        className="btn-newspaper"
+        disabled={isSelecting}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelectGroup?.(group.id);
+        }}
+      >
+        {isSelecting ? 'Selecting...' : 'Read More'}
+      </button>
+      <button
+        className="btn-newspaper btn-newspaper-secondary"
+        onClick={(e) => {
+          e.stopPropagation();
+          onArchiveGroup?.(group.id);
+        }}
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+
+  const renderExpandedPosts = (groupId: number) => {
+    if (expandedGroupId !== groupId) return null;
+
+    return (
+      <div className="tile-expanded">
+        {loadingGroupId === groupId ? (
+          <div className="tile-loading">Loading sources...</div>
+        ) : (
+          filterPosts(groupPosts[groupId]).map((post) => (
+            <div key={post.id} className="tile-post">
+              <h4>{post.ai_title || 'Untitled'}</h4>
+              <p>{post.ai_summary || post.original_text}</p>
+              <div className="tile-post-meta">
+                <span className="tile-post-author">{post.author || 'Unknown source'}</span>
+                {post.worthiness_score && (
+                  <span className="tile-post-score">{post.worthiness_score.toFixed(2)}</span>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div className="post-tiles-grid">
-      {groups.map((group) => (
-        <div key={group.id} className="group-tile">
-          <div className="tile-header" onClick={() => handleGroupClick(group.id)}>
-            <h3 className="tile-title">{group.representative_title}</h3>
-            <div className="tile-meta">
-              <span className="tile-source-badge">
-                {group.post_count} {group.post_count === 1 ? 'source' : 'sources'}
-              </span>
-              <span className="tile-category">{group.category || 'Other'}</span>
-            </div>
-          </div>
-
-          <div className="tile-actions">
-            <button
-              className="tile-btn tile-btn-primary"
-              disabled={isSelecting}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelectGroup?.(group.id);
-              }}
-            >
-              {isSelecting ? 'Selecting...' : 'Cook with that 🍳'}
-            </button>
-            <button
-              className="tile-btn tile-btn-secondary"
-              onClick={(e) => {
-                e.stopPropagation();
-                onArchiveGroup?.(group.id);
-              }}
-            >
-              Not interesting
-            </button>
-          </div>
-
-          {expandedGroupId === group.id && (
-            <div className="tile-expanded">
-              {loadingGroupId === group.id ? (
-                <div className="tile-loading">Loading...</div>
-              ) : (
-                groupPosts[group.id]?.map((post) => (
-                  <div key={post.id} className="tile-post">
-                    <h4>{post.ai_title || 'Untitled'}</h4>
-                    <p>{post.ai_summary || post.original_text}</p>
-                    <div className="tile-post-meta">
-                      <span className="tile-post-author">{post.author || 'Unknown'}</span>
-                      {post.worthiness_score && (
-                        <span className="tile-post-score">Score: {post.worthiness_score.toFixed(2)}</span>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+    <div className="newspaper-layout">
+      {/* Hero Section */}
+      <div className="newspaper-hero">
+        <article className="article-hero" onClick={() => handleGroupClick(heroStory.id)}>
+          <h1 className="headline-hero">{heroStory.representative_title}</h1>
+          {heroStory.representative_summary && (
+            <p className="article-lead">{heroStory.representative_summary}</p>
           )}
+          <div className="article-meta">
+            <span className="article-category">{heroStory.category || 'News'}</span>
+            <span className="article-sources">
+              {heroStory.post_count} {heroStory.post_count === 1 ? 'source' : 'sources'}
+            </span>
+          </div>
+          {renderArticleActions(heroStory)}
+          {renderExpandedPosts(heroStory.id)}
+        </article>
+
+        {/* Secondary Stories */}
+        <div className="secondary-stories">
+          {secondaryStories.map((story) => (
+            <article
+              key={story.id}
+              className="article-secondary"
+              onClick={() => handleGroupClick(story.id)}
+            >
+              <h2 className="headline-secondary">{story.representative_title}</h2>
+              {story.representative_summary && (
+                <p className="article-summary">{story.representative_summary}</p>
+              )}
+              <div className="article-meta">
+                <span className="article-category">{story.category || 'News'}</span>
+                <span className="article-sources">
+                  {story.post_count} {story.post_count === 1 ? 'source' : 'sources'}
+                </span>
+              </div>
+              {renderArticleActions(story)}
+              {renderExpandedPosts(story.id)}
+            </article>
+          ))}
         </div>
-      ))}
+      </div>
+
+      {/* Standard Articles Grid */}
+      {standardStories.length > 0 && (
+        <div className="articles-grid">
+          {standardStories.map((story) => (
+            <article
+              key={story.id}
+              className="article-standard"
+              onClick={() => handleGroupClick(story.id)}
+            >
+              <h3 className="headline-standard">{story.representative_title}</h3>
+              {story.representative_summary && (
+                <p className="article-summary">{story.representative_summary}</p>
+              )}
+              <div className="article-meta">
+                <span className="article-category">{story.category || 'News'}</span>
+                <span className="article-sources">
+                  {story.post_count} {story.post_count === 1 ? 'source' : 'sources'}
+                </span>
+              </div>
+              {renderArticleActions(story)}
+              {renderExpandedPosts(story.id)}
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

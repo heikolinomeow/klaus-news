@@ -88,10 +88,12 @@ export interface GroupArticle {
   id: number;
   group_id: number;
   research_id: number | null;
-  style: 'news_brief' | 'full_article' | 'executive_summary' | 'analysis' | 'custom';
+  style: 'news_brief' | 'full_article' | 'executive_summary' | 'analysis' | 'very_short' | 'short' | 'medium' | 'long' | 'custom';
   prompt_used: string;
   title: string | null;
+  preview: string | null;
   content: string;
+  posted_to_teams: string | null;
   created_at: string;
   updated_at: string | null;
 }

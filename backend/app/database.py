@@ -20,6 +20,22 @@ def get_db():
         db.close()
 
 
+def run_migrations():
+    """Run any pending database migrations"""
+    db = SessionLocal()
+    try:
+        # Add preview column to group_articles if it doesn't exist
+        try:
+            db.execute(text("SELECT preview FROM group_articles LIMIT 1"))
+        except Exception:
+            db.execute(text("ALTER TABLE group_articles ADD COLUMN preview TEXT"))
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
 def initialize_default_settings():
     """Initialize system_settings table with default values (V-21)"""
     from app.models.system_settings import SystemSettings
@@ -88,6 +104,15 @@ def initialize_default_settings():
                 max_value=0.9
             ),
             SystemSettings(
+                key='min_worthiness_threshold',
+                value='0.3',
+                value_type='float',
+                description='Posts below this score are discarded during ingestion',
+                category='filtering',
+                min_value=0.0,
+                max_value=0.5
+            ),
+            SystemSettings(
                 key='duplicate_threshold',
                 value='0.85',
                 value_type='float',
@@ -117,7 +142,7 @@ def initialize_default_settings():
             ,
             SystemSettings(
                 key='categories',
-                value='[{"id":"cat-1","name":"Major News","description":"Breaking announcements and significant industry news: new AI model releases, major product launches, company acquisitions, funding rounds, policy changes. High-impact news that everyone should know about.","order":1},{"id":"cat-2","name":"Automation","description":"Practical tips on using AI to improve everyday work: workflow automation, productivity hacks, business process improvements, no-code tools, AI assistants. For general business users.","order":2},{"id":"cat-3","name":"Coding","description":"Developer-focused content: AI coding assistants, code generation, IDE integrations, APIs, technical implementations. For engineers and developers.","order":3},{"id":"cat-4","name":"Content Creation","description":"AI tools for creating media: image generation, video, copywriting, voice synthesis, design tools, marketing materials.","order":4}]',
+                value='[{"id":"cat-1","name":"News","description":"Breaking announcements and high-impact industry news: major AI model releases, significant product launches, company acquisitions, large funding rounds, executive changes, partnership announcements. Time-sensitive stories with broad relevance.","order":1},{"id":"cat-2","name":"Automation","description":"Practical AI applications for business workflows: process automation, productivity tools, no-code/low-code AI platforms, AI assistants for non-technical users, RPA with AI, business process optimization. Focus on immediate practical value for general business users.","order":2},{"id":"cat-3","name":"Coding","description":"Developer-focused AI tools and technical content: code generation, AI coding assistants, IDE integrations, APIs, SDKs, developer experience, technical tutorials, programming language models, debugging tools. For software engineers and developers.","order":3},{"id":"cat-4","name":"Content","description":"AI tools for media creation: image generation, video synthesis, audio/voice generation, copywriting assistants, design tools, music generation, 3D modeling, marketing content creation. Focus on creative output and media production.","order":4},{"id":"cat-5","name":"Research","description":"Academic and scientific AI advances: new papers, arxiv publications, benchmark results, novel architectures, theoretical breakthroughs, dataset releases, model evaluations, scientific methodology. Technical depth for researchers and ML engineers.","order":5},{"id":"cat-6","name":"Policy","description":"AI governance, ethics, and regulation: legislation, compliance requirements, safety frameworks, bias and fairness discussions, copyright and IP issues, content moderation policies, international AI agreements, responsible AI guidelines.","order":6},{"id":"cat-7","name":"Agents","description":"Autonomous AI systems and agentic architectures: AI agents, tool use, function calling, multi-agent systems, orchestration frameworks, MCP, autonomous workflows, reasoning chains, agent benchmarks. Focus on AI systems that act independently.","order":7},{"id":"cat-8","name":"Opensource","description":"Open-source AI ecosystem: community models, Hugging Face releases, local/self-hosted AI, fine-tuning guides, model weights, open datasets, community projects, democratized AI tools. Non-commercial and community-driven developments.","order":8},{"id":"cat-9","name":"Infrastructure","description":"AI hardware and compute: GPUs, TPUs, custom AI chips, cloud provider offerings, inference optimization, edge deployment, data centers, pricing changes, performance benchmarks, MLOps platforms. The technical foundation layer.","order":9},{"id":"cat-10","name":"Enterprise","description":"Corporate AI adoption and strategy: case studies, ROI analysis, digital transformation, vendor evaluations, implementation stories, organizational change, AI maturity, industry-specific deployments. Business decision-maker perspective.","order":10}]',
                 value_type='json',
                 description='User-defined categories for post categorization',
                 category='filtering',
@@ -134,39 +159,39 @@ def initialize_default_settings():
                 max_value=None
             )
             ,
-            # V-9, V-10: Article style prompts
+            # Article style prompts (length-based, Teams-formatted)
             SystemSettings(
-                key='article_prompt_news_brief',
-                value='Write a short, factual news brief (2-3 paragraphs) based on the provided sources. Focus on the key facts, use objective language, and keep it concise for quick consumption.',
+                key='article_prompt_very_short',
+                value='Write a quick news alert for Teams. Format:\n\n**[Headline in bold]**\nOne sentence on what happened. One sentence on why it matters.\n\nKeep it under 50 words. No fluff.',
                 value_type='string',
-                description='Prompt template for News Brief style articles',
+                description='Very Short (~50 words) - Quick alert format',
                 category='articles',
                 min_value=None,
                 max_value=None
             ),
             SystemSettings(
-                key='article_prompt_full_article',
-                value='Write a comprehensive news article with multiple sections based on the provided sources. Include background context, detailed analysis, expert perspectives, and implications. Use clear headings and maintain journalistic objectivity.',
+                key='article_prompt_short',
+                value='Write a short Teams update. Format:\n\n**[Headline]**\nOne intro sentence.\n\n• Key point 1\n• Key point 2\n• Key point 3\n\nOne closing sentence with takeaway.\n\nKeep it punchy. ~100 words max.',
                 value_type='string',
-                description='Prompt template for Full Article style',
+                description='Short (~100 words) - Bullet points format',
                 category='articles',
                 min_value=None,
                 max_value=None
             ),
             SystemSettings(
-                key='article_prompt_executive_summary',
-                value='Write a business-focused executive summary based on the provided sources. Lead with key takeaways, include business impact, and end with actionable insights. Keep it suitable for leadership briefings.',
+                key='article_prompt_medium',
+                value='Write a Teams news post. Format:\n\n**[Headline]**\n\nBrief intro paragraph (2-3 sentences).\n\n**What\'s New:**\n• Point 1\n• Point 2\n• Point 3\n\n**Why It Matters:**\n1-2 sentences on impact.\n\n**Links:** Include source links if available.',
                 value_type='string',
-                description='Prompt template for Executive Summary style',
+                description='Medium (~200 words) - Structured sections',
                 category='articles',
                 min_value=None,
                 max_value=None
             ),
             SystemSettings(
-                key='article_prompt_analysis',
-                value='Write an analytical opinion piece based on the provided sources. Explore the implications, provide commentary on what this means for the industry, and offer a balanced perspective on different viewpoints. Suitable for thought leadership.',
+                key='article_prompt_long',
+                value='Write a detailed Teams article. Format:\n\n**[Headline]**\n\n**TL;DR:** One sentence summary.\n\n**The News:**\n2-3 paragraphs explaining what happened.\n\n**Key Details:**\n• Detail 1\n• Detail 2\n• Detail 3\n\n**What This Means:**\n1-2 paragraphs on implications.\n\n**Sources:** List sources with links.',
                 value_type='string',
-                description='Prompt template for Analysis style',
+                description='Long (~400 words) - Full article with sections',
                 category='articles',
                 min_value=None,
                 max_value=None

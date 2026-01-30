@@ -72,7 +72,22 @@ export const adminApi = {
   getSchedulerStatus: () => apiClient.get<{ paused: boolean; jobs: any[] }>('/api/admin/scheduler-status'),
   pauseScheduler: () => apiClient.post<{ message: string; status: string }>('/api/admin/pause-scheduler'),
   resumeScheduler: () => apiClient.post<{ message: string; status: string }>('/api/admin/resume-scheduler'),
-  getArchivePreview: () => apiClient.get<{ count: number; archive_age_days: number; cutoff_date: string }>('/api/admin/archive-preview')
+  getArchivePreview: () => apiClient.get<{ count: number; archive_age_days: number; cutoff_date: string }>('/api/admin/archive-preview'),
+  getIngestionProgress: () => apiClient.get<{
+    is_running: boolean;
+    started_at: string | null;
+    trigger_source: string;
+    total_lists: number;
+    current_list: number;
+    current_list_name: string;
+    total_posts: number;
+    current_post: number;
+    current_step: string;
+    posts_added: number;
+    duplicates_skipped: number;
+    errors: number;
+    progress_percent: number;
+  }>('/api/admin/ingestion-progress')
 };
 
 // Groups API (V-5, V-8, V-9, V-14)
@@ -119,8 +134,8 @@ export const groupArticlesApi = {
     apiClient.get<{ articles: GroupArticle[]; count: number }>(`/api/groups/${groupId}/articles/`),
   get: (groupId: number) =>
     apiClient.get(`/api/groups/${groupId}/article/`),
-  update: (groupId: number, articleId: number, content: string, title?: string) =>
-    apiClient.put(`/api/groups/${groupId}/article/${articleId}/`, { content, title }),
+  update: (groupId: number, articleId: number, content: string, title?: string, preview?: string) =>
+    apiClient.put(`/api/groups/${groupId}/article/${articleId}/`, { content, title, preview }),
   refine: (groupId: number, articleId: number, instruction: string) =>
     apiClient.put(`/api/groups/${groupId}/article/${articleId}/refine/`, { instruction })
 };
