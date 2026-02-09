@@ -24,6 +24,10 @@ RUN npm run build
 # Production stage with nginx
 FROM nginx:alpine
 
+# Cache buster for nginx stage (must match builder to invalidate cache)
+ARG CACHEBUST=1
+RUN echo "nginx stage CACHEBUST=$CACHEBUST"
+
 # Copy built assets from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
 
