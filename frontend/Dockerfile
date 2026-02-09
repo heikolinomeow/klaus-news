@@ -7,6 +7,9 @@ WORKDIR /app
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
 
+# Debug: print the API URL during build
+RUN echo "=== VITE_API_URL is: $VITE_API_URL ==="
+
 # Install dependencies
 COPY package.json package-lock.json* ./
 RUN npm install
