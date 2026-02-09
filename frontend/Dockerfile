@@ -19,6 +19,8 @@ RUN npm install
 
 # Copy source and build (VITE_API_URL is available during build)
 COPY . .
+# Force cache invalidation - change this string to rebuild
+RUN echo "FORCE_REBUILD_20260209_1850"
 RUN npm run build
 
 # Production stage with nginx
