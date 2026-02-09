@@ -330,7 +330,7 @@ class OpenAIClient:
         # Fall back to hardcoded if still no config
         if prompt_config is None:
             prompt_config = {
-                "prompt_text": "Rate this post's value for an e-commerce team improving their AI skills (0.0-1.0). High scores for: new AI models/tools, practical AI applications, actionable AI techniques, breaking AI news. Low scores for: opinion pieces, hype without substance, non-actionable content. CRITICAL: Give 0.0 for error messages, broken content, inaccessible URLs, or anything that says 'Sorry, I can't access' or similar - these are system errors, not content. Return ONLY a number.",
+                "prompt_text": "Score this post's newsworthiness for an internal AI digest (0.0-1.0). High scores: concrete new info (model/tool releases, benchmarks, pricing/API changes, security issues, policy updates), practical how-tos with real details, credible sources. Medium: thoughtful analysis with specifics. Low: vague hype, memes, engagement bait, recruiting, generic opinions, marketing with no facts, off-topic. CRITICAL: Give 0.0 for error messages, broken content, or anything like 'I can't access' or similar. Return ONLY a decimal number between 0.0 and 1.0.",
                 "model": "gpt-5-mini",
                 "max_completion_tokens": 1000
             }
