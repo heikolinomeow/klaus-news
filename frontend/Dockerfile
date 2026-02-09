@@ -3,11 +3,15 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Build argument for API URL (Railway passes env vars as build args)
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+
 # Install dependencies
 COPY package.json package-lock.json* ./
 RUN npm install
 
-# Copy source and build
+# Copy source and build (VITE_API_URL is available during build)
 COPY . .
 RUN npm run build
 
