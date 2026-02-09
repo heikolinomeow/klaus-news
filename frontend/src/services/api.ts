@@ -13,6 +13,33 @@ const apiClient = axios.create({
   },
 });
 
+
+// JWT Authorization header interceptor (V-7)
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('klaus_news_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Handle 401 responses - redirect to login (V-7)
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Clear stored token
+      localStorage.removeItem('klaus_news_token');
+      localStorage.removeItem('klaus_news_token_expiry');
+      // Redirect to login (if not already there)
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Posts API (V-11: selectPost removed - selection is at group level now)
 export const postsApi = {
   getAll: () => apiClient.get<PostsResponse>('/api/posts/'),

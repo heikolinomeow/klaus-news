@@ -139,9 +139,17 @@ app = FastAPI(
 # Start background scheduler
 from app.services.scheduler import start_scheduler
 from app.services.logging_config import setup_logging
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+import jwt
 
 @app.on_event("startup")
 async def startup_event():
+    # V-11: Validate required auth environment variables
+    if not settings.auth_password:
+        raise RuntimeError("AUTH_PASSWORD environment variable is required but not set")
+    if not settings.auth_jwt_secret:
+        raise RuntimeError("AUTH_JWT_SECRET environment variable is required but not set")
     # Create database tables
     Base.metadata.create_all(bind=engine)
     # Run pending migrations
@@ -155,17 +163,81 @@ async def startup_event():
     # Start scheduler
     start_scheduler()
 
-# CORS configuration
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """JWT authentication middleware (V-5)"""
+
+    # Paths that don't require authentication
+    PUBLIC_PATHS = [
+        "/health",
+        "/auth/login",
+        "/docs",
+        "/openapi.json",
+        "/redoc",
+        "/"
+    ]
+
+    async def dispatch(self, request, call_next):
+        # CORS preflight bypass - OPTIONS requests must pass through
+        # (AuthMiddleware runs before CORSMiddleware in request flow)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        # Skip auth for public paths
+        path = request.url.path
+        if any(path == p or path.startswith(p + "/") for p in self.PUBLIC_PATHS if p != "/"):
+            return await call_next(request)
+        if path == "/":
+            return await call_next(request)
+
+        # Check for Authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Not authenticated"}
+            )
+
+        # Verify JWT token
+        token = auth_header[7:]
+        try:
+            jwt.decode(token, settings.auth_jwt_secret, algorithms=["HS256"])
+        except jwt.ExpiredSignatureError:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Token expired"}
+            )
+        except jwt.InvalidTokenError:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid token"}
+            )
+
+        return await call_next(request)
+
+# CORS configuration - allow both local dev and production
+import os
+
+allowed_origins = [
+    "http://localhost:5173",  # Vite dev server (local)
+    "http://localhost:3000",  # Nginx production build (local)
+]
+
+# Add production frontend URL from environment variable
+frontend_url = os.getenv("FRONTEND_URL")
+if frontend_url:
+    allowed_origins.append(frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:3000",  # Nginx production build
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Authentication middleware (V-5) - must be added after CORS
+app.add_middleware(AuthMiddleware)
 
 # Include routers
 app.include_router(posts.router, prefix="/api/posts", tags=["posts"])
@@ -205,7 +277,9 @@ app.include_router(group_articles.router, prefix="/api/groups", tags=["group-art
 
 # Teams integration router (V-15)
 from app.api import teams
+from app.api import auth
 app.include_router(teams.router, prefix="/api/teams", tags=["teams"])
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
 
 
 @app.get("/health")

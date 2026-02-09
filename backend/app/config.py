@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     openai_api_key: str = "placeholder_openai_api_key"
     teams_channels: str = "[]"  # JSON array of {name, webhookUrl} objects
 
+    # Authentication (V-2, V-11)
+    auth_username: str = "admin"
+    auth_password: str  # Required, no default (V-11)
+    auth_jwt_secret: str  # Required, no default (V-11)
+    auth_session_expiry_hours: int = 24
+
     # Database
     database_url: str = "postgresql://postgres:postgres@postgres:5432/klaus_news"
 
