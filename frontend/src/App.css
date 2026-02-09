@@ -2911,6 +2911,23 @@ main {
   color: var(--ink-dark);
 }
 
+.logs-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-top: 1px solid var(--rule-color);
+  background: var(--paper-cream);
+  font-size: 0.8rem;
+  color: var(--ink-gray);
+}
+
+.logs-count {
+  font-family: var(--font-meta);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .log-row {
   transition: background-color 0.2s ease;
 }

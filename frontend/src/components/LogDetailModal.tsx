@@ -6,6 +6,11 @@ interface LogDetailModalProps {
 export default function LogDetailModal({ log, onClose }: LogDetailModalProps) {
   if (!log) return null;
 
+  const formatLogTimestamp = (timestamp: string | null) => {
+    if (!timestamp) return '';
+    return new Date(timestamp).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content modal-large" onClick={(e) => e.stopPropagation()}>
@@ -17,7 +22,7 @@ export default function LogDetailModal({ log, onClose }: LogDetailModalProps) {
         <div className="modal-body">
           <div className="log-detail-section">
             <label>Timestamp:</label>
-            <span>{new Date(log.timestamp).toLocaleString()}</span>
+            <span>{formatLogTimestamp(log.timestamp)}</span>
           </div>
 
           <div className="log-detail-section">

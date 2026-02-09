@@ -9,11 +9,20 @@ export default function Pantry() {
   const [selectedLogDetail, setSelectedLogDetail] = useState<any>(null);
   const [logCleanupDays, setLogCleanupDays] = useState(7);
   const [operationFeedback, setOperationFeedback] = useState<string | null>(null);
+  const [logLimit, setLogLimit] = useState(250);
+  const [logOffset, setLogOffset] = useState(0);
+  const [hasMoreLogs, setHasMoreLogs] = useState(false);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
 
   useEffect(() => {
-    loadLogs();
+    loadLogs({ reset: true });
     loadLogStats();
   }, []);
+
+  const formatLogTimestamp = (timestamp: string | null) => {
+    if (!timestamp) return '';
+    return new Date(timestamp).toLocaleString('de-DE', { timeZone: 'Europe/Berlin' });
+  };
 
   const parseLogContext = (context: string | null) => {
     if (!context) return null;
@@ -24,22 +33,28 @@ export default function Pantry() {
     }
   };
 
-  const loadLogs = async () => {
+  const loadLogs = async ({ reset = false, offset }: { reset?: boolean; offset?: number } = {}) => {
     try {
+      setIsLoadingLogs(true);
+      const effectiveOffset = reset ? 0 : (offset ?? logOffset);
       const response = await logsApi.getAll({
         level: logFilters.level || undefined,
         category: logFilters.category || undefined,
         hours: logFilters.hours,
-        limit: 100,
-        offset: 0
+        limit: logLimit,
+        offset: effectiveOffset
       });
       const withContext = (response.data.logs || []).map((log: any) => ({
         ...log,
         _context: parseLogContext(log.context)
       }));
-      setSystemLogs(withContext);
+      setSystemLogs((prev) => (reset ? withContext : [...prev, ...withContext]));
+      setHasMoreLogs(effectiveOffset + withContext.length < response.data.total);
+      setLogOffset(effectiveOffset);
     } catch (error) {
       console.error('Failed to load logs:', error);
+    } finally {
+      setIsLoadingLogs(false);
     }
   };
 
@@ -110,7 +125,7 @@ export default function Pantry() {
                   value={logFilters.level}
                   onChange={(e) => {
                     setLogFilters({ ...logFilters, level: e.target.value });
-                    setTimeout(loadLogs, 100);
+                    setTimeout(() => loadLogs({ reset: true }), 100);
                   }}
                 >
                   <option value="">All</option>
@@ -128,7 +143,7 @@ export default function Pantry() {
                   value={logFilters.category}
                   onChange={(e) => {
                     setLogFilters({ ...logFilters, category: e.target.value });
-                    setTimeout(loadLogs, 100);
+                    setTimeout(() => loadLogs({ reset: true }), 100);
                   }}
                 >
                   <option value="">All</option>
@@ -147,7 +162,7 @@ export default function Pantry() {
                     const hours = parseInt(e.target.value);
                     setLogFilters({ ...logFilters, hours });
                     setTimeout(() => {
-                      loadLogs();
+                      loadLogs({ reset: true });
                       loadLogStats();
                     }, 100);
                   }}
@@ -160,15 +175,31 @@ export default function Pantry() {
                 </select>
               </label>
 
-              <button
-                className="btn-secondary btn-small"
-                onClick={() => {
-                  loadLogs();
-                  loadLogStats();
-                }}
-              >
-                Refresh
-              </button>
+                <button
+                  className="btn-secondary btn-small"
+                  onClick={() => {
+                    loadLogs({ reset: true });
+                    loadLogStats();
+                  }}
+                >
+                  Refresh
+                </button>
+                <label>
+                  Rows:
+                  <select
+                    value={logLimit}
+                    onChange={(e) => {
+                      const limit = parseInt(e.target.value);
+                      setLogLimit(limit);
+                      setTimeout(() => loadLogs({ reset: true }), 100);
+                    }}
+                  >
+                    <option value="100">100</option>
+                    <option value="250">250</option>
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                  </select>
+                </label>
             </div>
           </div>
 
@@ -197,7 +228,7 @@ export default function Pantry() {
                           className={`log-row ${log.level === 'ERROR' || log.level === 'CRITICAL' ? 'log-error' : ''}`}
                         >
                           <td className="log-when">
-                            {new Date(log.timestamp).toLocaleString()}
+                            {formatLogTimestamp(log.timestamp)}
                           </td>
                           <td className="log-source">
                             <div className="log-source-category">
@@ -237,6 +268,20 @@ export default function Pantry() {
                     })}
                   </tbody>
                 </table>
+                <div className="logs-footer">
+                  <span className="logs-count">
+                    Showing {systemLogs.length} log(s)
+                  </span>
+                  {hasMoreLogs && (
+                    <button
+                      className="btn-secondary btn-small"
+                      onClick={() => loadLogs({ reset: false, offset: logOffset + logLimit })}
+                      disabled={isLoadingLogs}
+                    >
+                      {isLoadingLogs ? 'Loading…' : 'Load more'}
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <p className="help-text">No logs found for the selected filters.</p>
