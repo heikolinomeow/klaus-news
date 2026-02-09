@@ -4,7 +4,22 @@
 import axios from 'axios';
 import { PostsResponse, ArticlesResponse, Post, Article, GroupArticle } from '../types';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const rawApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+
+function normalizeApiUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith('http://') && window.location.protocol === 'https:') {
+    return `https://${url.slice('http://'.length)}`;
+  }
+  return url;
+}
+
+const normalizedApiUrl = normalizeApiUrl(rawApiUrl);
+const API_BASE_URL =
+  normalizedApiUrl ||
+  (window.location.hostname.endsWith('up.railway.app')
+    ? 'https://klaus-api.up.railway.app'
+    : 'http://localhost:8000');
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
