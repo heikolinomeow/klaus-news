@@ -3,12 +3,15 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Cache buster - change this value to force rebuild
+ARG CACHEBUST=1
+
 # Build argument for API URL (Railway passes env vars as build args)
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
 
-# Debug: print the API URL during build
-RUN echo "=== VITE_API_URL is: $VITE_API_URL ==="
+# Debug: print the API URL during build (remove after debugging)
+RUN echo "=== CACHEBUST=$CACHEBUST VITE_API_URL=$VITE_API_URL ==="
 
 # Install dependencies
 COPY package.json package-lock.json* ./

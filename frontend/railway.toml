@@ -4,6 +4,7 @@ dockerfilePath = "Dockerfile"
 
 [build.args]
 VITE_API_URL = "${{VITE_API_URL}}"
+CACHEBUST = "20260209-v2"
 
 [deploy]
 restartPolicyType = "ON_FAILURE"
