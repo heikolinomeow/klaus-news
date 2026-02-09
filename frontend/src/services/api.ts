@@ -58,17 +58,17 @@ apiClient.interceptors.response.use(
 // Posts API (V-11: selectPost removed - selection is at group level now)
 export const postsApi = {
   getAll: () => apiClient.get<PostsResponse>('/api/posts/'),
-  getRecommended: () => apiClient.get<PostsResponse>('/api/posts/recommended/'),
-  getById: (id: number) => apiClient.get<{ post: Post }>(`/api/posts/${id}/`)
+  getRecommended: () => apiClient.get<PostsResponse>('/api/posts/recommended'),
+  getById: (id: number) => apiClient.get<{ post: Post }>(`/api/posts/${id}`)
 };
 
 // Articles API (V-13: group-based article generation)
 export const articlesApi = {
   getAll: () => apiClient.get<ArticlesResponse>('/api/articles/'),
   create: (groupId: number) => apiClient.post<{ article: Article }>('/api/articles/', { group_id: groupId }),
-  update: (id: number, content: string) => apiClient.put<{ article: Article }>(`/api/articles/${id}/`, { content }),
-  regenerate: (id: number) => apiClient.post<{ article: Article }>(`/api/articles/${id}/regenerate/`),
-  postToTeams: (id: number) => apiClient.post(`/api/articles/${id}/post-to-teams/`)
+  update: (id: number, content: string) => apiClient.put<{ article: Article }>(`/api/articles/${id}`, { content }),
+  regenerate: (id: number) => apiClient.post<{ article: Article }>(`/api/articles/${id}/regenerate`),
+  postToTeams: (id: number) => apiClient.post(`/api/articles/${id}/post-to-teams`)
 };
 
 // Lists API (V-8)
@@ -77,22 +77,22 @@ export const listsApi = {
   create: (data: { list_id: string; list_name?: string; description?: string }) =>
     apiClient.post<{ list: any }>('/api/lists/', data),
   update: (id: number, data: { enabled?: boolean; list_name?: string; description?: string }) =>
-    apiClient.put(`/api/lists/${id}/`, data),
-  delete: (id: number) => apiClient.delete(`/api/lists/${id}/`),
-  test: (id: number) => apiClient.post<{ valid: boolean; message: string }>(`/api/lists/${id}/test/`),
-  getStats: (id: number) => apiClient.get(`/api/lists/${id}/stats/`)
+    apiClient.put(`/api/lists/${id}`, data),
+  delete: (id: number) => apiClient.delete(`/api/lists/${id}`),
+  test: (id: number) => apiClient.post<{ valid: boolean; message: string }>(`/api/lists/${id}/test`),
+  getStats: (id: number) => apiClient.get(`/api/lists/${id}/stats`)
 };
 
 // Settings API (V-10, V-23)
 export const settingsApi = {
   getAll: () => apiClient.get<Record<string, any[]>>('/api/settings/'),
-  getByKey: (key: string) => apiClient.get<any>(`/api/settings/${key}/`),
-  update: (key: string, value: string) => apiClient.put(`/api/settings/${key}/`, { value }),
+  getByKey: (key: string) => apiClient.get<any>(`/api/settings/${key}`),
+  update: (key: string, value: string) => apiClient.put(`/api/settings/${key}`, { value }),
   batchUpdate: (updates: Array<{ key: string; value: string }>) =>
-    apiClient.post('/api/settings/batch/', { updates }),
-  reset: () => apiClient.post('/api/settings/reset/'),
+    apiClient.post('/api/settings/batch', { updates }),
+  reset: () => apiClient.post('/api/settings/reset'),
   validate: (key: string, value: string) =>
-    apiClient.get<{ valid: boolean; message: string }>(`/api/settings/validate/${key}/?value=${value}`),
+    apiClient.get<{ valid: boolean; message: string }>(`/api/settings/validate/${key}?value=${value}`),
   getArticlePrompts: () => apiClient.get<{ prompts: Record<string, string> }>('/api/settings/article-prompts/')
 };
 
@@ -135,11 +135,11 @@ export const adminApi = {
 // Groups API (V-5, V-8, V-9, V-14)
 export const groupsApi = {
   getAll: () => apiClient.get<{ groups: any[] }>('/api/groups/'),
-  getArchived: () => apiClient.get<{ groups: any[] }>('/api/groups/archived/'),
-  getPostsByGroup: (groupId: number) => apiClient.get<{ posts: any[] }>(`/api/groups/${groupId}/posts/`),
-  select: (groupId: number) => apiClient.post(`/api/groups/${groupId}/select/`),
-  archive: (groupId: number) => apiClient.post(`/api/groups/${groupId}/archive/`),
-  unarchive: (groupId: number) => apiClient.post(`/api/groups/${groupId}/unarchive/`),
+  getArchived: () => apiClient.get<{ groups: any[] }>('/api/groups/archived'),
+  getPostsByGroup: (groupId: number) => apiClient.get<{ posts: any[] }>(`/api/groups/${groupId}/posts`),
+  select: (groupId: number) => apiClient.post(`/api/groups/${groupId}/select`),
+  archive: (groupId: number) => apiClient.post(`/api/groups/${groupId}/archive`),
+  unarchive: (groupId: number) => apiClient.post(`/api/groups/${groupId}/unarchive`),
   transition: (groupId: number, targetState: string) =>
     apiClient.post(`/api/groups/${groupId}/transition`, { target_state: targetState })
 };
@@ -147,13 +147,13 @@ export const groupsApi = {
 // Prompts API (V-4)
 export const promptsApi = {
   getAll: () => apiClient.get<{ prompts: any[] }>('/api/prompts/'),
-  getByKey: (key: string) => apiClient.get<any>(`/api/prompts/${key}/`),
+  getByKey: (key: string) => apiClient.get<any>(`/api/prompts/${key}`),
   update: (key: string, data: { prompt_text: string; model: string; temperature: number; max_tokens: number; description?: string }) =>
-    apiClient.put(`/api/prompts/${key}/`, data),
-  reset: (key: string) => apiClient.post(`/api/prompts/${key}/reset/`),
+    apiClient.put(`/api/prompts/${key}`, data),
+  reset: (key: string) => apiClient.post(`/api/prompts/${key}/reset`),
   create: (data: { prompt_key: string; prompt_text: string; model: string; temperature: number; max_tokens: number; description?: string }) =>
     apiClient.post('/api/prompts/', data),
-  delete: (key: string) => apiClient.delete(`/api/prompts/${key}/`),
+  delete: (key: string) => apiClient.delete(`/api/prompts/${key}`),
   export: () => apiClient.get<{ export_version: string; exported_at: string; prompts: any[] }>('/api/prompts/export'),
   import: (data: any) => apiClient.post('/api/prompts/import', data)
 };
