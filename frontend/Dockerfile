@@ -24,13 +24,12 @@ RUN echo "FORCE_REBUILD_20260209_1850"
 RUN npm run build
 
 # Production stage with nginx
-FROM nginx:alpine
+FROM nginx:alpine AS production
 
-# Cache buster for nginx stage (must match builder to invalidate cache)
-ARG CACHEBUST=1
-RUN echo "nginx stage CACHEBUST=$CACHEBUST"
+# Force rebuild of this stage - change timestamp to invalidate
+RUN echo "NGINX_REBUILD_20260209_1900" && rm -rf /usr/share/nginx/html/*
 
-# Copy built assets from builder
+# Copy built assets from builder (must run after the RUN above)
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Copy nginx configuration template
