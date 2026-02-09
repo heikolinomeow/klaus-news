@@ -179,10 +179,8 @@ export default function Pantry() {
                 <table className="logs-table">
                   <thead>
                     <tr>
-                      <th>Timestamp</th>
-                      <th>Level</th>
-                      <th>Category</th>
-                      <th>Logger</th>
+                      <th>When</th>
+                      <th>Source</th>
                       <th>Headline</th>
                       <th>Summary</th>
                       <th>Score</th>
@@ -198,16 +196,20 @@ export default function Pantry() {
                           key={log.id}
                           className={`log-row ${log.level === 'ERROR' || log.level === 'CRITICAL' ? 'log-error' : ''}`}
                         >
-                          <td className="log-timestamp">
+                          <td className="log-when">
                             {new Date(log.timestamp).toLocaleString()}
                           </td>
-                          <td>
-                            <span className={`level-badge level-${log.level.toLowerCase()}`}>
-                              {log.level}
-                            </span>
+                          <td className="log-source">
+                            <div className="log-source-category">
+                              {log.category || 'N/A'}
+                            </div>
+                            <div className="log-source-logger">{log.logger_name}</div>
+                            <div className="log-source-level">
+                              <span className={`level-badge level-${log.level.toLowerCase()} level-compact`}>
+                                {log.level}
+                              </span>
+                            </div>
                           </td>
-                          <td>{log.category || 'N/A'}</td>
-                          <td className="log-logger">{log.logger_name}</td>
                           <td className="log-headline" title={context?.generated_title || ''}>
                             {context?.generated_title || '—'}
                           </td>

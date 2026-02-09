@@ -2927,21 +2927,43 @@ main {
   background: rgba(139, 0, 0, 0.1);
 }
 
-.log-timestamp {
+.log-when {
   font-family: var(--font-mono);
   white-space: nowrap;
   font-size: 0.8rem;
   color: var(--ink-gray);
 }
 
-.log-logger {
-  font-family: var(--font-mono);
+.log-source {
   font-size: 0.8rem;
+  line-height: 1.2;
+  color: var(--ink-dark);
+  min-width: 160px;
+}
+
+.log-source-category {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-gray);
+}
+
+.log-source-logger {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
   color: var(--accent-link);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.log-source-level {
+  margin-top: 4px;
 }
 
 .log-message {
-  max-width: 400px;
+  max-width: 320px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2949,14 +2971,20 @@ main {
 
 .log-headline,
 .log-summary {
-  max-width: 240px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+}
+
+.log-headline {
+  max-width: 360px;
+  -webkit-line-clamp: 2;
 }
 
 .log-summary {
-  max-width: 320px;
+  max-width: 520px;
+  -webkit-line-clamp: 3;
 }
 
 .log-score {
@@ -2975,6 +3003,12 @@ main {
   font-family: var(--font-meta);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.level-badge.level-compact {
+  font-size: 0.6rem;
+  padding: 2px 6px;
+  opacity: 0.65;
 }
 
 .level-badge.level-debug {
