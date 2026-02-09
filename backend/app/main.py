@@ -228,6 +228,10 @@ frontend_url = os.getenv("FRONTEND_URL")
 if frontend_url:
     allowed_origins.append(frontend_url)
 
+# Middleware order matters! In Starlette, middleware added LATER wraps middleware added EARLIER.
+# So we add AuthMiddleware FIRST, then CORSMiddleware SECOND.
+# This way CORS headers are added even when AuthMiddleware returns 401.
+app.add_middleware(AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -235,9 +239,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Authentication middleware (V-5) - must be added after CORS
-app.add_middleware(AuthMiddleware)
 
 # Include routers
 app.include_router(posts.router, prefix="/api/posts", tags=["posts"])
