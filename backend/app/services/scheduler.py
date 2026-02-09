@@ -180,7 +180,12 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                 # V-6: Use AI worthiness scoring (with static fallback)
                 progress_tracker.set_step("scoring")
                 try:
-                    worthiness = await openai_client.score_worthiness(raw_post['text'], db=db)
+                    worthiness = await openai_client.score_worthiness(
+                        raw_post['text'],
+                        db=db,
+                        title=gen_result.get('title'),
+                        summary=gen_result.get('summary')
+                    )
                 except Exception as e:
                     print(f"AI worthiness failed, using default 0.5: {e}")
                     worthiness = 0.5

@@ -15,6 +15,15 @@ export default function Pantry() {
     loadLogStats();
   }, []);
 
+  const parseLogContext = (context: string | null) => {
+    if (!context) return null;
+    try {
+      return JSON.parse(context);
+    } catch {
+      return null;
+    }
+  };
+
   const loadLogs = async () => {
     try {
       const response = await logsApi.getAll({
@@ -24,7 +33,11 @@ export default function Pantry() {
         limit: 100,
         offset: 0
       });
-      setSystemLogs(response.data.logs);
+      const withContext = (response.data.logs || []).map((log: any) => ({
+        ...log,
+        _context: parseLogContext(log.context)
+      }));
+      setSystemLogs(withContext);
     } catch (error) {
       console.error('Failed to load logs:', error);
     }
@@ -170,37 +183,56 @@ export default function Pantry() {
                       <th>Level</th>
                       <th>Category</th>
                       <th>Logger</th>
+                      <th>Headline</th>
+                      <th>Summary</th>
+                      <th>Score</th>
                       <th>Message</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {systemLogs.map((log) => (
-                      <tr
-                        key={log.id}
-                        className={`log-row ${log.level === 'ERROR' || log.level === 'CRITICAL' ? 'log-error' : ''}`}
-                      >
-                        <td className="log-timestamp">
-                          {new Date(log.timestamp).toLocaleString()}
-                        </td>
-                        <td>
-                          <span className={`level-badge level-${log.level.toLowerCase()}`}>
-                            {log.level}
-                          </span>
-                        </td>
-                        <td>{log.category || 'N/A'}</td>
-                        <td className="log-logger">{log.logger_name}</td>
-                        <td className="log-message">{log.message}</td>
-                        <td>
-                          <button
-                            className="btn-secondary btn-small"
-                            onClick={() => setSelectedLogDetail(log)}
-                          >
-                            Details
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {systemLogs.map((log) => {
+                      const context = log._context || null;
+                      return (
+                        <tr
+                          key={log.id}
+                          className={`log-row ${log.level === 'ERROR' || log.level === 'CRITICAL' ? 'log-error' : ''}`}
+                        >
+                          <td className="log-timestamp">
+                            {new Date(log.timestamp).toLocaleString()}
+                          </td>
+                          <td>
+                            <span className={`level-badge level-${log.level.toLowerCase()}`}>
+                              {log.level}
+                            </span>
+                          </td>
+                          <td>{log.category || 'N/A'}</td>
+                          <td className="log-logger">{log.logger_name}</td>
+                          <td className="log-headline" title={context?.generated_title || ''}>
+                            {context?.generated_title || '—'}
+                          </td>
+                          <td className="log-summary" title={context?.generated_summary || ''}>
+                            {context?.generated_summary || '—'}
+                          </td>
+                          <td className="log-score">
+                            {context?.worthiness_score !== undefined
+                              ? Number(context.worthiness_score).toFixed(2)
+                              : context?.score !== undefined
+                                ? Number(context.score).toFixed(2)
+                                : '—'}
+                          </td>
+                          <td className="log-message">{log.message}</td>
+                          <td>
+                            <button
+                              className="btn-secondary btn-small"
+                              onClick={() => setSelectedLogDetail(log)}
+                            >
+                              Details
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

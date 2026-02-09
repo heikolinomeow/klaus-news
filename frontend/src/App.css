@@ -2947,6 +2947,24 @@ main {
   white-space: nowrap;
 }
 
+.log-headline,
+.log-summary {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-summary {
+  max-width: 320px;
+}
+
+.log-score {
+  font-family: var(--font-mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
 /* Level Badges */
 .level-badge {
   display: inline-block;

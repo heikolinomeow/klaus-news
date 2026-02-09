@@ -113,7 +113,9 @@ class OpenAIClient:
             logger.info("Title and summary generated successfully", extra={
                 'operation': 'generate_title_and_summary',
                 'title_length': len(title),
-                'summary_length': len(summary)
+                'summary_length': len(summary),
+                'generated_title': title,
+                'generated_summary': summary
             })
 
             return {"title": title, "summary": summary}
@@ -278,7 +280,7 @@ class OpenAIClient:
             raise
 
 
-    async def score_worthiness(self, post_text: str, db=None) -> float:
+    async def score_worthiness(self, post_text: str, db=None, title: str | None = None, summary: str | None = None) -> float:
         """Score post worthiness using AI (V-6)
 
         Uses database prompts when available (via _get_prompt), falls back
@@ -377,10 +379,17 @@ class OpenAIClient:
                     'raw_response': score_text
                 })
 
-            logger.info("Worthiness score calculated", extra={
-                'operation': 'score_worthiness',
-                'score': score
-            })
+        score_log_extra = {
+            'operation': 'score_worthiness',
+            'score': score,
+            'worthiness_score': score
+        }
+        if title:
+            score_log_extra['generated_title'] = title
+        if summary:
+            score_log_extra['generated_summary'] = summary
+
+        logger.info("Worthiness score calculated", extra=score_log_extra)
 
             return score
 
