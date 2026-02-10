@@ -1,9 +1,61 @@
 """Background scheduler for periodic tasks (post ingestion, archival)"""
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.events import (
+    EVENT_JOB_ADDED,
+    EVENT_JOB_MODIFIED,
+    EVENT_JOB_REMOVED,
+    EVENT_JOB_MISSED,
+    EVENT_JOB_EXECUTED,
+    EVENT_JOB_ERROR
+)
 import logging
 
 scheduler = AsyncIOScheduler()
 logger = logging.getLogger('klaus_news.scheduler')
+_listeners_registered = False
+
+
+def _register_scheduler_listeners():
+    """Register APScheduler event listeners once."""
+    global _listeners_registered
+    if _listeners_registered:
+        return
+
+    def on_job_event(event):
+        job_id = getattr(event, 'job_id', None)
+        scheduled_run_time = getattr(event, 'scheduled_run_time', None)
+        scheduled_iso = scheduled_run_time.isoformat() if scheduled_run_time else None
+
+        if event.code == EVENT_JOB_EXECUTED:
+            logger.info("Scheduler job executed", extra={
+                'job_id': job_id,
+                'scheduled_run_time': scheduled_iso
+            })
+        elif event.code == EVENT_JOB_MISSED:
+            logger.warning("Scheduler job missed (misfire)", extra={
+                'job_id': job_id,
+                'scheduled_run_time': scheduled_iso
+            })
+        elif event.code == EVENT_JOB_ERROR:
+            logger.error("Scheduler job error", extra={
+                'job_id': job_id,
+                'scheduled_run_time': scheduled_iso,
+                'exception': str(getattr(event, 'exception', None)),
+                'traceback': str(getattr(event, 'traceback', None))
+            })
+        elif event.code == EVENT_JOB_ADDED:
+            logger.info("Scheduler job added", extra={'job_id': job_id})
+        elif event.code == EVENT_JOB_MODIFIED:
+            logger.info("Scheduler job modified", extra={'job_id': job_id})
+        elif event.code == EVENT_JOB_REMOVED:
+            logger.info("Scheduler job removed", extra={'job_id': job_id})
+
+    scheduler.add_listener(
+        on_job_event,
+        EVENT_JOB_ADDED | EVENT_JOB_MODIFIED | EVENT_JOB_REMOVED |
+        EVENT_JOB_MISSED | EVENT_JOB_EXECUTED | EVENT_JOB_ERROR
+    )
+    _listeners_registered = True
 
 
 # V-28: Dynamic job rescheduling functions
@@ -426,6 +478,7 @@ def start_scheduler():
     scheduler_paused = settings_svc.get('scheduler_paused', False)
 
     ensure_jobs()
+    _register_scheduler_listeners()
 
     if scheduler_paused:
         logger.info("Scheduler is paused; jobs will skip until resumed")
