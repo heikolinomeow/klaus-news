@@ -3028,6 +3028,54 @@ main {
   opacity: 0.65;
 }
 
+/* Debug Snapshot */
+.debug-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.debug-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.debug-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.debug-item {
+  border: 1px solid var(--rule-color);
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: var(--paper-white);
+}
+
+.debug-item-wide {
+  grid-column: 1 / -1;
+}
+
+.debug-label {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-gray);
+  font-family: var(--font-meta);
+}
+
+.debug-value {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.9rem;
+  color: var(--ink-dark);
+  font-family: var(--font-body);
+}
+
 .level-badge.level-debug {
   background: var(--paper-cream);
   color: var(--ink-gray);

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { logsApi } from '../services/api';
+import { logsApi, adminApi, settingsApi, listsApi } from '../services/api';
 import LogDetailModal from '../components/LogDetailModal';
 
 export default function Pantry() {
@@ -13,10 +13,13 @@ export default function Pantry() {
   const [logOffset, setLogOffset] = useState(0);
   const [hasMoreLogs, setHasMoreLogs] = useState(false);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [debugSnapshot, setDebugSnapshot] = useState<any>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
 
   useEffect(() => {
     loadLogs({ reset: true });
     loadLogStats();
+    loadDebugSnapshot();
   }, []);
 
   const formatLogTimestamp = (timestamp: string | null) => {
@@ -58,6 +61,74 @@ export default function Pantry() {
     }
   };
 
+  const loadDebugSnapshot = async () => {
+    try {
+      setDebugLoading(true);
+      const [
+        schedulerRes,
+        autoFetchRes,
+        postsPerFetchRes,
+        ingestIntervalRes,
+        listsRes,
+        progressRes,
+        schedLogsRes
+      ] = await Promise.all([
+        adminApi.getSchedulerStatus(),
+        settingsApi.getByKey('auto_fetch_enabled'),
+        settingsApi.getByKey('posts_per_fetch'),
+        settingsApi.getByKey('ingest_interval_minutes'),
+        listsApi.getAll(),
+        adminApi.getIngestionProgress(),
+        logsApi.getAll({ category: 'scheduler', hours: 24, limit: 200, offset: 0 })
+      ]);
+
+      const jobs = schedulerRes.data.jobs || [];
+      const ingestJob = jobs.find((j: any) => j.id === 'ingest_posts');
+      const autoFetchEnabled = autoFetchRes.data?.value === 'true' || autoFetchRes.data?.value === true;
+      const postsPerFetch = postsPerFetchRes.data?.value ? parseInt(postsPerFetchRes.data.value) : null;
+      const ingestInterval = ingestIntervalRes.data?.value ? parseInt(ingestIntervalRes.data.value) : null;
+      const enabledLists = (listsRes.data.lists || []).filter((l: any) => l.enabled).length;
+
+      const schedLogs = schedLogsRes.data.logs || [];
+      const lastIngestionLog = schedLogs.find((l: any) =>
+        typeof l.message === 'string' && l.message.toLowerCase().includes('ingestion')
+      ) || null;
+
+      setDebugSnapshot({
+        paused: schedulerRes.data.paused,
+        next_ingest_run: ingestJob?.next_run_time || null,
+        auto_fetch_enabled: autoFetchEnabled,
+        posts_per_fetch: postsPerFetch,
+        ingest_interval_minutes: ingestInterval,
+        enabled_lists: enabledLists,
+        ingestion_running: progressRes.data?.is_running ?? null,
+        ingestion_progress_percent: progressRes.data?.progress_percent ?? null,
+        last_ingestion_log: lastIngestionLog
+          ? {
+              timestamp: lastIngestionLog.timestamp,
+              message: lastIngestionLog.message
+            }
+          : null
+      });
+    } catch (error) {
+      console.error('Failed to load debug snapshot:', error);
+    } finally {
+      setDebugLoading(false);
+    }
+  };
+
+  const handleCopyDebug = async () => {
+    if (!debugSnapshot) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(debugSnapshot, null, 2));
+      setOperationFeedback('Debug snapshot copied');
+      setTimeout(() => setOperationFeedback(null), 2000);
+    } catch (error) {
+      setOperationFeedback('Failed to copy debug snapshot');
+      setTimeout(() => setOperationFeedback(null), 2000);
+    }
+  };
+
   const loadLogStats = async () => {
     try {
       const response = await logsApi.getStats(logFilters.hours);
@@ -96,6 +167,71 @@ export default function Pantry() {
       )}
 
       <div className="pantry-grid">
+        <section className="settings-tile">
+          <div className="debug-header">
+            <h2>Debug Snapshot</h2>
+            <div className="debug-actions">
+              <button className="btn-secondary btn-small" onClick={loadDebugSnapshot} disabled={debugLoading}>
+                {debugLoading ? 'Refreshing…' : 'Refresh Debug'}
+              </button>
+              <button className="btn-secondary btn-small" onClick={handleCopyDebug} disabled={!debugSnapshot}>
+                Copy JSON
+              </button>
+            </div>
+          </div>
+
+          {debugSnapshot ? (
+            <div className="debug-grid">
+              <div className="debug-item">
+                <span className="debug-label">Scheduler Paused</span>
+                <span className="debug-value">{String(debugSnapshot.paused)}</span>
+              </div>
+              <div className="debug-item">
+                <span className="debug-label">Next Ingest Run</span>
+                <span className="debug-value">
+                  {debugSnapshot.next_ingest_run ? formatLogTimestamp(debugSnapshot.next_ingest_run) : 'N/A'}
+                </span>
+              </div>
+              <div className="debug-item">
+                <span className="debug-label">Auto-Fetch</span>
+                <span className="debug-value">{String(debugSnapshot.auto_fetch_enabled)}</span>
+              </div>
+              <div className="debug-item">
+                <span className="debug-label">Enabled Lists</span>
+                <span className="debug-value">{debugSnapshot.enabled_lists ?? 'N/A'}</span>
+              </div>
+              <div className="debug-item">
+                <span className="debug-label">Posts Per Fetch</span>
+                <span className="debug-value">{debugSnapshot.posts_per_fetch ?? 'N/A'}</span>
+              </div>
+              <div className="debug-item">
+                <span className="debug-label">Ingest Interval (min)</span>
+                <span className="debug-value">{debugSnapshot.ingest_interval_minutes ?? 'N/A'}</span>
+              </div>
+              <div className="debug-item">
+                <span className="debug-label">Ingestion Running</span>
+                <span className="debug-value">{String(debugSnapshot.ingestion_running)}</span>
+              </div>
+              <div className="debug-item">
+                <span className="debug-label">Progress %</span>
+                <span className="debug-value">
+                  {debugSnapshot.ingestion_progress_percent ?? 'N/A'}
+                </span>
+              </div>
+              <div className="debug-item debug-item-wide">
+                <span className="debug-label">Last Ingestion Log</span>
+                <span className="debug-value">
+                  {debugSnapshot.last_ingestion_log
+                    ? `${formatLogTimestamp(debugSnapshot.last_ingestion_log.timestamp)} — ${debugSnapshot.last_ingestion_log.message}`
+                    : 'N/A'}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <p className="help-text">No debug data loaded yet.</p>
+          )}
+        </section>
+
         <section className="settings-tile">
           <h2>System Logs</h2>
 
