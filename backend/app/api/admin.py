@@ -194,6 +194,7 @@ async def resume_scheduler(db: Session = Depends(get_db)):
     """
     try:
         from app.services.settings_service import SettingsService
+        from app.services.scheduler import ensure_jobs
         from sqlalchemy import update
         from app.models.system_settings import SystemSettings
 
@@ -208,6 +209,9 @@ async def resume_scheduler(db: Session = Depends(get_db)):
 
         # Invalidate cache
         SettingsService().invalidate_cache('scheduler_paused')
+
+        # Recreate jobs in case they were never scheduled
+        ensure_jobs()
 
         return {
             "message": "Scheduler resumed",

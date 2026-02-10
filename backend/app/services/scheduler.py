@@ -10,27 +10,62 @@ logger = logging.getLogger('klaus_news.scheduler')
 def reschedule_ingest_job(new_interval_minutes: int):
     """Reschedule ingestion job with new interval (V-28)"""
     try:
-        scheduler.reschedule_job(
-            'ingest_posts',
-            trigger='interval',
-            minutes=new_interval_minutes
+        scheduler.add_job(
+            ingest_posts_job,
+            'interval',
+            minutes=new_interval_minutes,
+            id='ingest_posts',
+            replace_existing=True
         )
-        logger.info(f"Rescheduled ingest job", extra={'interval_minutes': new_interval_minutes})
+        logger.info("Rescheduled ingest job", extra={'interval_minutes': new_interval_minutes})
     except Exception as e:
-        logger.error(f"Failed to reschedule ingest job", exc_info=True, extra={'interval_minutes': new_interval_minutes})
+        logger.error("Failed to reschedule ingest job", exc_info=True, extra={'interval_minutes': new_interval_minutes})
 
 
 def reschedule_archive_job(new_hour: int):
     """Reschedule archive job with new time (V-28)"""
     try:
-        scheduler.reschedule_job(
-            'archive_posts',
-            trigger='cron',
-            hour=new_hour
+        scheduler.add_job(
+            archive_posts_job,
+            'cron',
+            hour=new_hour,
+            id='archive_posts',
+            replace_existing=True
         )
-        logger.info(f"Rescheduled archive job", extra={'hour': new_hour})
+        logger.info("Rescheduled archive job", extra={'hour': new_hour})
     except Exception as e:
-        logger.error(f"Failed to reschedule archive job", exc_info=True, extra={'hour': new_hour})
+        logger.error("Failed to reschedule archive job", exc_info=True, extra={'hour': new_hour})
+
+
+def ensure_jobs():
+    """Ensure scheduler jobs exist regardless of pause state."""
+    from app.services.settings_service import SettingsService
+
+    settings_svc = SettingsService()
+    ingest_interval = settings_svc.get('ingest_interval_minutes', 30)
+    archive_hour = settings_svc.get('archive_time_hour', 3)
+
+    scheduler.add_job(
+        ingest_posts_job,
+        'interval',
+        minutes=ingest_interval,
+        id='ingest_posts',
+        replace_existing=True
+    )
+    scheduler.add_job(
+        archive_posts_job,
+        'cron',
+        hour=archive_hour,
+        id='archive_posts',
+        replace_existing=True
+    )
+    scheduler.add_job(
+        cleanup_logs_job,
+        'cron',
+        hour=4,
+        id='cleanup_logs',
+        replace_existing=True
+    )
 
 
 async def ingest_posts_job(trigger_source: str = "scheduled"):
@@ -90,6 +125,14 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
 
         # Start progress tracking
         progress_tracker.start(trigger_source, len(enabled_lists))
+
+        if not enabled_lists:
+            logger.info("No enabled lists, skipping ingestion", extra={
+                'trigger_source': trigger_source,
+                'lists_processed': 0
+            })
+            progress_tracker.finish()
+            return stats
 
         for list_idx, list_meta in enumerate(enabled_lists, 1):
             stats['lists_processed'] += 1
@@ -379,22 +422,13 @@ def start_scheduler():
     """Start background scheduler with configured jobs (V-27: read from DB, V-16: respect pause state)"""
     from app.services.settings_service import SettingsService
 
-    # V-27: Read initial settings from database
     settings_svc = SettingsService()
-    ingest_interval = settings_svc.get('ingest_interval_minutes', 30)
-    archive_hour = settings_svc.get('archive_time_hour', 3)
     scheduler_paused = settings_svc.get('scheduler_paused', False)
 
-    # V-16: Only start jobs if scheduler is not paused
-    if not scheduler_paused:
-        # Run post ingestion with dynamic interval
-        scheduler.add_job(ingest_posts_job, 'interval', minutes=ingest_interval, id='ingest_posts')
+    ensure_jobs()
 
-        # Run archival with dynamic hour
-        scheduler.add_job(archive_posts_job, 'cron', hour=archive_hour, id='archive_posts')
-
-        # Run log cleanup daily at 4 AM
-        scheduler.add_job(cleanup_logs_job, 'cron', hour=4, id='cleanup_logs')
+    if scheduler_paused:
+        logger.info("Scheduler is paused; jobs will skip until resumed")
 
     scheduler.start()
 
