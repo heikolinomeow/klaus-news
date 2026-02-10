@@ -379,17 +379,17 @@ class OpenAIClient:
                     'raw_response': score_text
                 })
 
-        score_log_extra = {
-            'operation': 'score_worthiness',
-            'score': score,
-            'worthiness_score': score
-        }
-        if title:
-            score_log_extra['generated_title'] = title
-        if summary:
-            score_log_extra['generated_summary'] = summary
+            score_log_extra = {
+                'operation': 'score_worthiness',
+                'score': score,
+                'worthiness_score': score
+            }
+            if title:
+                score_log_extra['generated_title'] = title
+            if summary:
+                score_log_extra['generated_summary'] = summary
 
-        logger.info("Worthiness score calculated", extra=score_log_extra)
+            logger.info("Worthiness score calculated", extra=score_log_extra)
 
             return score
 
