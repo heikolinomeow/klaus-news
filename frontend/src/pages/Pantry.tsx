@@ -41,6 +41,19 @@ export default function Pantry() {
     }
   };
 
+  const getContextTitle = (context: any) =>
+    context?.generated_title || context?.ai_title || context?.title || null;
+
+  const getContextSummary = (context: any) =>
+    context?.generated_summary || context?.ai_summary || context?.summary || null;
+
+  const getContextScore = (context: any) => {
+    const raw = context?.worthiness ?? context?.worthiness_score ?? context?.score;
+    if (raw === undefined || raw === null || raw === '') return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
   const loadLogs = async ({ reset = false, offset }: { reset?: boolean; offset?: number } = {}) => {
     try {
       setIsLoadingLogs(true);
@@ -126,21 +139,89 @@ export default function Pantry() {
     try {
       setLowWorthinessLoading(true);
       const hours = hoursOverride ?? logFilters.hours;
-      const response = await logsApi.getAll({
-        category: 'scheduler',
-        search: 'Skipping low-worthiness post',
-        hours,
-        limit: 1000,
-        offset: 0
-      });
+      const [skipRes, scoreRes] = await Promise.all([
+        logsApi.getAll({
+          category: 'scheduler',
+          search: 'Skipping low-worthiness post',
+          hours,
+          limit: 1000,
+          offset: 0
+        }),
+        logsApi.getAll({
+          category: 'external_api',
+          search: 'Worthiness score calculated',
+          hours,
+          limit: 1000,
+          offset: 0
+        })
+      ]);
 
-      const withContext = (response.data.logs || []).map((log: any) => ({
+      const skipLogs = (skipRes.data.logs || []).map((log: any) => ({
         ...log,
         _context: parseLogContext(log.context)
       }));
 
-      setLowWorthinessLogs(withContext);
-      setLowWorthinessTotal(response.data.total || withContext.length);
+      const scoreCandidates = (scoreRes.data.logs || []).map((log: any) => {
+        const context = parseLogContext(log.context);
+        return {
+          timestampMs: log.timestamp ? new Date(log.timestamp).getTime() : 0,
+          score: getContextScore(context),
+          title: getContextTitle(context),
+          summary: getContextSummary(context),
+          context
+        };
+      });
+
+      // Historical skip logs may not include title/summary; enrich from nearest matching score logs.
+      const usedScoreCandidateIndexes = new Set<number>();
+      const enrichedSkipLogs = skipLogs.map((log: any) => {
+        const context = log._context || {};
+        if (getContextTitle(context) || getContextSummary(context)) {
+          return log;
+        }
+
+        const logScore = getContextScore(context);
+        const logTimestampMs = log.timestamp ? new Date(log.timestamp).getTime() : 0;
+        if (logScore === null || !logTimestampMs) {
+          return log;
+        }
+
+        let bestIndex = -1;
+        let bestDistance = Number.POSITIVE_INFINITY;
+
+        scoreCandidates.forEach((candidate, index) => {
+          if (usedScoreCandidateIndexes.has(index)) return;
+          if (!candidate.title && !candidate.summary) return;
+          if (candidate.score === null) return;
+          if (Math.abs(candidate.score - logScore) > 0.01) return;
+
+          const distance = Math.abs(candidate.timestampMs - logTimestampMs);
+          if (distance > 5 * 60 * 1000) return;
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestIndex = index;
+          }
+        });
+
+        if (bestIndex === -1) {
+          return log;
+        }
+
+        usedScoreCandidateIndexes.add(bestIndex);
+        const match = scoreCandidates[bestIndex];
+
+        return {
+          ...log,
+          _context: {
+            ...context,
+            generated_title: match.title || context.generated_title,
+            generated_summary: match.summary || context.generated_summary
+          }
+        };
+      });
+
+      setLowWorthinessLogs(enrichedSkipLogs);
+      setLowWorthinessTotal(skipRes.data.total || enrichedSkipLogs.length);
     } catch (error) {
       console.error('Failed to load low-worthiness overview:', error);
       setLowWorthinessLogs([]);
@@ -417,20 +498,14 @@ export default function Pantry() {
                           return (
                             <tr key={`low-worthiness-${log.id}`}>
                               <td className="log-when">{formatLogTimestamp(log.timestamp)}</td>
-                              <td className="log-headline" title={context?.generated_title || ''}>
-                                {context?.generated_title || '—'}
+                              <td className="log-headline" title={getContextTitle(context) || ''}>
+                                {getContextTitle(context) || '—'}
                               </td>
-                              <td className="log-summary" title={context?.generated_summary || ''}>
-                                {context?.generated_summary || '—'}
+                              <td className="log-summary" title={getContextSummary(context) || ''}>
+                                {getContextSummary(context) || '—'}
                               </td>
                               <td className="log-score">
-                                {context?.worthiness !== undefined
-                                  ? Number(context.worthiness).toFixed(2)
-                                  : context?.worthiness_score !== undefined
-                                    ? Number(context.worthiness_score).toFixed(2)
-                                    : context?.score !== undefined
-                                      ? Number(context.score).toFixed(2)
-                                      : '—'}
+                                {getContextScore(context) !== null ? Number(getContextScore(context)).toFixed(2) : '—'}
                               </td>
                               <td>
                                 <button
