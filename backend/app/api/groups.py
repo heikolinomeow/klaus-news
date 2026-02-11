@@ -10,6 +10,15 @@ from app.models.post import Post
 router = APIRouter()
 
 
+def _build_x_post_url(author: str | None, post_id: str | None) -> str | None:
+    """Build X post URL from available post metadata."""
+    if not post_id:
+        return None
+    if author:
+        return f"https://x.com/{author}/status/{post_id}"
+    return f"https://x.com/i/web/status/{post_id}"
+
+
 @router.get("/")
 async def get_all_groups(db: Session = Depends(get_db)):
     """Get all active (non-archived) groups with representative titles and post counts (V-6)"""
@@ -20,10 +29,34 @@ async def get_all_groups(db: Session = Depends(get_db)):
         .subquery()
     )
 
-    # Query groups with max_worthiness via left join
+    # Subquery to pick one representative source post per group for external linking.
+    representative_post_subq = (
+        select(
+            Post.group_id.label('group_id'),
+            Post.post_id.label('source_post_id'),
+            Post.author.label('source_author'),
+            func.row_number().over(
+                partition_by=Post.group_id,
+                order_by=[func.coalesce(Post.worthiness_score, 0).desc(), Post.created_at.desc()]
+            ).label('rn')
+        )
+        .subquery()
+    )
+
+    # Query groups with max_worthiness + representative source post via left joins
     stmt = (
-        select(Group, max_worthiness_subq.c.max_worthiness)
+        select(
+            Group,
+            max_worthiness_subq.c.max_worthiness,
+            representative_post_subq.c.source_post_id,
+            representative_post_subq.c.source_author,
+        )
         .outerjoin(max_worthiness_subq, Group.id == max_worthiness_subq.c.group_id)
+        .outerjoin(
+            representative_post_subq,
+            (Group.id == representative_post_subq.c.group_id) &
+            (representative_post_subq.c.rn == 1)
+        )
         .where(Group.archived == False)
         .order_by(Group.first_seen.desc())
     )
@@ -37,10 +70,13 @@ async def get_all_groups(db: Session = Depends(get_db)):
         "first_seen": g.first_seen.isoformat() if g.first_seen else None,
         "post_count": g.post_count,
         "max_worthiness": max_w,
+        "source_post_id": source_post_id,
+        "source_author": source_author,
+        "source_url": _build_x_post_url(source_author, source_post_id),
         "archived": g.archived,
         "selected": g.selected,
         "state": g.state or 'NEW'
-    } for g, max_w in results]}
+    } for g, max_w, source_post_id, source_author in results]}
 
 
 @router.get("/archived")

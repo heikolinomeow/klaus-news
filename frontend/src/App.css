@@ -202,6 +202,36 @@ body {
   font-weight: 700;
 }
 
+.App-header nav .logout-button {
+  font-family: var(--font-meta);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-editorial);
+  background: linear-gradient(to bottom, var(--paper-white), var(--paper-aged));
+  border: 1px solid var(--rule-dark);
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.App-header nav .logout-button:hover {
+  color: var(--paper-white);
+  background: var(--ink-black);
+  border-color: var(--ink-black);
+}
+
+.App-header nav .logout-button:focus-visible {
+  outline: 2px solid var(--ink-black);
+  outline-offset: 2px;
+}
+
+.App-header nav .logout-button:active {
+  transform: translateY(1px);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Category Navigation (Newspaper Section Bar)
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -2759,6 +2789,18 @@ main {
   color: var(--ink-black);
 }
 
+.cooking-group-summary {
+  margin: 0 0 14px 0;
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--ink-dark);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* Research Placeholder & Loading States */
 .research-placeholder,
 .research-loading {
@@ -2888,6 +2930,41 @@ main {
   letter-spacing: 0.04em;
   color: var(--ink-gray);
   font-family: var(--font-meta);
+}
+
+.logs-tab-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--rule-color);
+  border-radius: 4px;
+  background: var(--paper-white);
+  margin-bottom: 12px;
+}
+
+.logs-tab-button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-gray);
+  font-family: var(--font-meta);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.logs-tab-button:hover {
+  color: var(--ink-black);
+  background: var(--paper-cream);
+}
+
+.logs-tab-button.active {
+  border-color: var(--ink-black);
+  background: var(--paper-cream);
+  color: var(--ink-black);
 }
 
 /* Logs Table */
@@ -3024,11 +3101,6 @@ main {
 .log-score {
   font-family: var(--font-mono);
   text-align: right;
-  white-space: nowrap;
-}
-
-.log-post-id {
-  font-family: var(--font-mono);
   white-space: nowrap;
 }
 
@@ -3961,6 +4033,23 @@ main {
   line-height: 1.3;
   margin: 0 0 8px 0;
   color: var(--ink-black);
+}
+
+.article-source-link {
+  display: inline-block;
+  margin: 0 0 10px 0;
+  font-family: var(--font-meta);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-link);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.article-source-link:hover {
+  border-bottom-color: var(--accent-link);
 }
 
 .article-standard .article-summary {
@@ -5010,6 +5099,11 @@ tr:hover {
 
   .App-header nav a {
     font-size: 0.75rem;
+  }
+
+  .App-header nav .logout-button {
+    font-size: 0.72rem;
+    padding: 4px 10px;
   }
 
   .category-nav {

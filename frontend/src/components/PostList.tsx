@@ -78,7 +78,7 @@ function PostList({ groups, onSelectGroup, onArchiveGroup, isSelecting }: PostLi
           onSelectGroup?.(group.id);
         }}
       >
-        {isSelecting ? 'Selecting...' : 'Read More'}
+        {isSelecting ? 'Selecting...' : 'Cook with that'}
       </button>
       <button
         className="btn-newspaper btn-newspaper-secondary"
@@ -91,6 +91,22 @@ function PostList({ groups, onSelectGroup, onArchiveGroup, isSelecting }: PostLi
       </button>
     </div>
   );
+
+  const renderSourceLink = (group: Group) => {
+    if (!group.source_url) return null;
+
+    return (
+      <a
+        className="article-source-link"
+        href={group.source_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+      >
+        View source post on X
+      </a>
+    );
+  };
 
   const renderExpandedPosts = (groupId: number) => {
     if (expandedGroupId !== groupId) return null;
@@ -123,6 +139,7 @@ function PostList({ groups, onSelectGroup, onArchiveGroup, isSelecting }: PostLi
       <div className="newspaper-hero">
         <article className="article-hero" onClick={() => handleGroupClick(heroStory.id)}>
           <h1 className="headline-hero">{heroStory.representative_title}</h1>
+          {renderSourceLink(heroStory)}
           {heroStory.representative_summary && (
             <p className="article-lead">{heroStory.representative_summary}</p>
           )}
@@ -145,6 +162,7 @@ function PostList({ groups, onSelectGroup, onArchiveGroup, isSelecting }: PostLi
               onClick={() => handleGroupClick(story.id)}
             >
               <h2 className="headline-secondary">{story.representative_title}</h2>
+              {renderSourceLink(story)}
               {story.representative_summary && (
                 <p className="article-summary">{story.representative_summary}</p>
               )}
@@ -171,6 +189,7 @@ function PostList({ groups, onSelectGroup, onArchiveGroup, isSelecting }: PostLi
               onClick={() => handleGroupClick(story.id)}
             >
               <h3 className="headline-standard">{story.representative_title}</h3>
+              {renderSourceLink(story)}
               {story.representative_summary && (
                 <p className="article-summary">{story.representative_summary}</p>
               )}

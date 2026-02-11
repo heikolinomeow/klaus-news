@@ -474,7 +474,10 @@ export default function Cooking() {
               className="cooking-group-card"
               onClick={() => selectGroup(group)}
             >
-              <h3>{group.representative_title}</h3>
+              <h3>{group.representative_title || group.representative_summary || 'Untitled story'}</h3>
+              {group.representative_summary && (
+                <p className="cooking-group-summary">{group.representative_summary}</p>
+              )}
               <div className="cooking-group-meta">
                 <span className="badge">{group.category}</span>
                 <span className="small muted">{group.post_count} posts</span>
@@ -537,7 +540,7 @@ export default function Cooking() {
           <div className="cooking-article-content">
             <div className="article-content-header">
               {!isEditing && (
-                <h2>{currentArticle.title || selectedGroup?.representative_title}</h2>
+                <h2>{currentArticle.title || selectedGroup?.representative_title || selectedGroup?.representative_summary || 'Untitled story'}</h2>
               )}
               <div className="article-header-controls">
                 {articles.length > 1 && (
@@ -688,7 +691,7 @@ export default function Cooking() {
         {showTeamsModal && teamsChannels.length > 0 && (
           <TeamsChannelModal
             channels={teamsChannels}
-            articleTitle={currentArticle.title || selectedGroup?.representative_title || 'Article'}
+            articleTitle={currentArticle.title || selectedGroup?.representative_title || selectedGroup?.representative_summary || 'Article'}
             articleSummary={currentArticle.content.substring(0, 200) + '...'}
             onClose={() => setShowTeamsModal(false)}
             onSend={sendToTeams}
@@ -707,7 +710,7 @@ export default function Cooking() {
         <h1>{selectedGroup?.category?.toUpperCase() || 'COOKING'}</h1>
         {selectedGroup && (
           <div className="cooking-group-info">
-            <h2>{selectedGroup.representative_title}</h2>
+            <h2>{selectedGroup.representative_title || selectedGroup.representative_summary || 'Untitled story'}</h2>
           </div>
         )}
         <button

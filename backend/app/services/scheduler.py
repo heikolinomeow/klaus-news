@@ -272,6 +272,20 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                 progress_tracker.set_step("generating")
                 gen_result = await openai_client.generate_title_and_summary(raw_post['text'])
 
+                # Guard against occasional empty LLM outputs so cards never render blank.
+                generated_title = (gen_result.get('title') or '').strip()
+                generated_summary = (gen_result.get('summary') or '').strip()
+                fallback_text = raw_post['text'].strip()
+
+                if not generated_summary:
+                    generated_summary = fallback_text[:280]
+
+                if not generated_title:
+                    generated_title = (generated_summary or fallback_text)[:100]
+
+                gen_result['title'] = generated_title
+                gen_result['summary'] = generated_summary
+
                 # V-6: Use AI worthiness scoring (with static fallback)
                 progress_tracker.set_step("scoring")
                 try:
@@ -291,7 +305,9 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                     logger.info("Skipping low-worthiness post", extra={
                         'post_id': raw_post['id'],
                         'worthiness': worthiness,
-                        'threshold': min_worthiness
+                        'threshold': min_worthiness,
+                        'generated_title': gen_result.get('title'),
+                        'generated_summary': gen_result.get('summary')
                     })
                     stats['low_worthiness_skipped'] += 1
                     progress_tracker.post_skipped()

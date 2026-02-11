@@ -64,6 +64,9 @@ export interface Group {
   representative_summary?: string;
   post_count: number;
   max_worthiness?: number;
+  source_post_id?: string | null;
+  source_author?: string | null;
+  source_url?: string | null;
 }
 
 export interface GroupsResponse {

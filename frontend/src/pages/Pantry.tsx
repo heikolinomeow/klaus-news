@@ -7,6 +7,7 @@ export default function Pantry() {
   const [lowWorthinessLogs, setLowWorthinessLogs] = useState<Array<any>>([]);
   const [lowWorthinessTotal, setLowWorthinessTotal] = useState(0);
   const [lowWorthinessLoading, setLowWorthinessLoading] = useState(false);
+  const [activeLogTab, setActiveLogTab] = useState<'filtered' | 'logs'>('logs');
   const [logStats, setLogStats] = useState<any>(null);
   const [logFilters, setLogFilters] = useState({ level: '', category: '', hours: 24 });
   const [selectedLogDetail, setSelectedLogDetail] = useState<any>(null);
@@ -375,144 +376,167 @@ export default function Pantry() {
           </div>
 
           <div className="setting-subgroup">
-            <div className="low-worthiness-header">
-              <h4>Filtered Out: Worthiness &lt; 0.30</h4>
-              <span className="low-worthiness-count">
-                {lowWorthinessLoading ? 'Loading…' : `${lowWorthinessTotal} post(s) in ${logFilters.hours}h`}
-              </span>
+            <div className="logs-tab-bar">
+              <button
+                className={`logs-tab-button ${activeLogTab === 'filtered' ? 'active' : ''}`}
+                onClick={() => setActiveLogTab('filtered')}
+              >
+                Filtered Out
+              </button>
+              <button
+                className={`logs-tab-button ${activeLogTab === 'logs' ? 'active' : ''}`}
+                onClick={() => setActiveLogTab('logs')}
+              >
+                Logs
+              </button>
             </div>
-            {lowWorthinessLogs.length > 0 ? (
-              <div className="logs-table-container">
-                <table className="logs-table low-worthiness-table">
-                  <thead>
-                    <tr>
-                      <th>When</th>
-                      <th>Post ID</th>
-                      <th>Worthiness</th>
-                      <th>Threshold</th>
-                      <th>Message</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lowWorthinessLogs.map((log) => {
-                      const context = log._context || null;
-                      return (
-                        <tr key={`low-worthiness-${log.id}`}>
-                          <td className="log-when">{formatLogTimestamp(log.timestamp)}</td>
-                          <td className="log-post-id">
-                            {context?.post_id || '—'}
-                          </td>
-                          <td className="log-score">
-                            {context?.worthiness !== undefined ? Number(context.worthiness).toFixed(2) : '—'}
-                          </td>
-                          <td className="log-score">
-                            {context?.threshold !== undefined ? Number(context.threshold).toFixed(2) : '—'}
-                          </td>
-                          <td className="log-message">{log.message}</td>
-                          <td>
-                            <button
-                              className="btn-secondary btn-small"
-                              onClick={() => setSelectedLogDetail(log)}
-                            >
-                              Details
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="help-text">
-                {lowWorthinessLoading ? 'Loading filtered-out posts…' : `No worthiness-filtered posts found in the last ${logFilters.hours} hours.`}
-              </p>
-            )}
-          </div>
 
-          <div className="setting-subgroup">
-            <h4>Recent Logs</h4>
-            {systemLogs.length > 0 ? (
-              <div className="logs-table-container">
-                <table className="logs-table">
-                  <thead>
-                    <tr>
-                      <th>When</th>
-                      <th>Source</th>
-                      <th>Headline</th>
-                      <th>Summary</th>
-                      <th>Score</th>
-                      <th>Message</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {systemLogs.map((log) => {
-                      const context = log._context || null;
-                      return (
-                        <tr
-                          key={log.id}
-                          className={`log-row ${log.level === 'ERROR' || log.level === 'CRITICAL' ? 'log-error' : ''}`}
-                        >
-                          <td className="log-when">
-                            {formatLogTimestamp(log.timestamp)}
-                          </td>
-                          <td className="log-source">
-                            <div className="log-source-category">
-                              {log.category || 'N/A'}
-                            </div>
-                            <div className="log-source-logger">{log.logger_name}</div>
-                            <div className="log-source-level">
-                              <span className={`level-badge level-${log.level.toLowerCase()} level-compact`}>
-                                {log.level}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="log-headline" title={context?.generated_title || ''}>
-                            {context?.generated_title || '—'}
-                          </td>
-                          <td className="log-summary" title={context?.generated_summary || ''}>
-                            {context?.generated_summary || '—'}
-                          </td>
-                          <td className="log-score">
-                            {context?.worthiness_score !== undefined
-                              ? Number(context.worthiness_score).toFixed(2)
-                              : context?.score !== undefined
-                                ? Number(context.score).toFixed(2)
-                                : '—'}
-                          </td>
-                          <td className="log-message">{log.message}</td>
-                          <td>
-                            <button
-                              className="btn-secondary btn-small"
-                              onClick={() => setSelectedLogDetail(log)}
-                            >
-                              Details
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                <div className="logs-footer">
-                  <span className="logs-count">
-                    Showing {systemLogs.length} log(s)
+            {activeLogTab === 'filtered' ? (
+              <>
+                <div className="low-worthiness-header">
+                  <h4>Filtered Out: Worthiness &lt; 0.30</h4>
+                  <span className="low-worthiness-count">
+                    {lowWorthinessLoading ? 'Loading…' : `${lowWorthinessTotal} post(s) in ${logFilters.hours}h`}
                   </span>
-                  {hasMoreLogs && (
-                    <button
-                      className="btn-secondary btn-small"
-                      onClick={() => loadLogs({ reset: false, offset: logOffset + logLimit })}
-                      disabled={isLoadingLogs}
-                    >
-                      {isLoadingLogs ? 'Loading…' : 'Load more'}
-                    </button>
-                  )}
                 </div>
-              </div>
+                {lowWorthinessLogs.length > 0 ? (
+                  <div className="logs-table-container">
+                    <table className="logs-table low-worthiness-table">
+                      <thead>
+                        <tr>
+                          <th>When</th>
+                          <th>Headline</th>
+                          <th>Summary</th>
+                          <th>Score</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lowWorthinessLogs.map((log) => {
+                          const context = log._context || null;
+                          return (
+                            <tr key={`low-worthiness-${log.id}`}>
+                              <td className="log-when">{formatLogTimestamp(log.timestamp)}</td>
+                              <td className="log-headline" title={context?.generated_title || ''}>
+                                {context?.generated_title || '—'}
+                              </td>
+                              <td className="log-summary" title={context?.generated_summary || ''}>
+                                {context?.generated_summary || '—'}
+                              </td>
+                              <td className="log-score">
+                                {context?.worthiness !== undefined
+                                  ? Number(context.worthiness).toFixed(2)
+                                  : context?.worthiness_score !== undefined
+                                    ? Number(context.worthiness_score).toFixed(2)
+                                    : context?.score !== undefined
+                                      ? Number(context.score).toFixed(2)
+                                      : '—'}
+                              </td>
+                              <td>
+                                <button
+                                  className="btn-secondary btn-small"
+                                  onClick={() => setSelectedLogDetail(log)}
+                                >
+                                  Details
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="help-text">
+                    {lowWorthinessLoading ? 'Loading filtered-out posts…' : `No worthiness-filtered posts found in the last ${logFilters.hours} hours.`}
+                  </p>
+                )}
+              </>
             ) : (
-              <p className="help-text">No logs found for the selected filters.</p>
+              <>
+                <h4>Recent Logs</h4>
+                {systemLogs.length > 0 ? (
+                  <div className="logs-table-container">
+                    <table className="logs-table">
+                      <thead>
+                        <tr>
+                          <th>When</th>
+                          <th>Source</th>
+                          <th>Headline</th>
+                          <th>Summary</th>
+                          <th>Score</th>
+                          <th>Message</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {systemLogs.map((log) => {
+                          const context = log._context || null;
+                          return (
+                            <tr
+                              key={log.id}
+                              className={`log-row ${log.level === 'ERROR' || log.level === 'CRITICAL' ? 'log-error' : ''}`}
+                            >
+                              <td className="log-when">
+                                {formatLogTimestamp(log.timestamp)}
+                              </td>
+                              <td className="log-source">
+                                <div className="log-source-category">
+                                  {log.category || 'N/A'}
+                                </div>
+                                <div className="log-source-logger">{log.logger_name}</div>
+                                <div className="log-source-level">
+                                  <span className={`level-badge level-${log.level.toLowerCase()} level-compact`}>
+                                    {log.level}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="log-headline" title={context?.generated_title || ''}>
+                                {context?.generated_title || '—'}
+                              </td>
+                              <td className="log-summary" title={context?.generated_summary || ''}>
+                                {context?.generated_summary || '—'}
+                              </td>
+                              <td className="log-score">
+                                {context?.worthiness_score !== undefined
+                                  ? Number(context.worthiness_score).toFixed(2)
+                                  : context?.score !== undefined
+                                    ? Number(context.score).toFixed(2)
+                                    : '—'}
+                              </td>
+                              <td className="log-message">{log.message}</td>
+                              <td>
+                                <button
+                                  className="btn-secondary btn-small"
+                                  onClick={() => setSelectedLogDetail(log)}
+                                >
+                                  Details
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <div className="logs-footer">
+                      <span className="logs-count">
+                        Showing {systemLogs.length} log(s)
+                      </span>
+                      {hasMoreLogs && (
+                        <button
+                          className="btn-secondary btn-small"
+                          onClick={() => loadLogs({ reset: false, offset: logOffset + logLimit })}
+                          disabled={isLoadingLogs}
+                        >
+                          {isLoadingLogs ? 'Loading…' : 'Load more'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="help-text">No logs found for the selected filters.</p>
+                )}
+              </>
             )}
           </div>
 
