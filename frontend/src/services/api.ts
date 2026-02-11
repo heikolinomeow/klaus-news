@@ -184,7 +184,7 @@ export const groupArticlesApi = {
 
 // Logs API
 export const logsApi = {
-  getAll: (params: { level?: string; category?: string; hours?: number; limit?: number; offset?: number }) =>
+  getAll: (params: { level?: string; category?: string; logger_name?: string; search?: string; hours?: number; limit?: number; offset?: number }) =>
     apiClient.get('/api/logs/', { params }),
   getStats: (hours: number = 24) =>
     apiClient.get(`/api/logs/stats?hours=${hours}`),

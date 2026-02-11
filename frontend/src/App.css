@@ -2873,6 +2873,23 @@ main {
   min-width: 150px;
 }
 
+.low-worthiness-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.low-worthiness-count {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-gray);
+  font-family: var(--font-meta);
+}
+
 /* Logs Table */
 .logs-table-container {
   overflow-x: auto;
@@ -3007,6 +3024,11 @@ main {
 .log-score {
   font-family: var(--font-mono);
   text-align: right;
+  white-space: nowrap;
+}
+
+.log-post-id {
+  font-family: var(--font-mono);
   white-space: nowrap;
 }
 

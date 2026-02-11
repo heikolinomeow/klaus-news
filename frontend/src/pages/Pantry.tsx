@@ -4,6 +4,9 @@ import LogDetailModal from '../components/LogDetailModal';
 
 export default function Pantry() {
   const [systemLogs, setSystemLogs] = useState<Array<any>>([]);
+  const [lowWorthinessLogs, setLowWorthinessLogs] = useState<Array<any>>([]);
+  const [lowWorthinessTotal, setLowWorthinessTotal] = useState(0);
+  const [lowWorthinessLoading, setLowWorthinessLoading] = useState(false);
   const [logStats, setLogStats] = useState<any>(null);
   const [logFilters, setLogFilters] = useState({ level: '', category: '', hours: 24 });
   const [selectedLogDetail, setSelectedLogDetail] = useState<any>(null);
@@ -19,6 +22,7 @@ export default function Pantry() {
   useEffect(() => {
     loadLogs({ reset: true });
     loadLogStats();
+    loadLowWorthinessOverview();
     loadDebugSnapshot();
   }, []);
 
@@ -117,6 +121,34 @@ export default function Pantry() {
     }
   };
 
+  const loadLowWorthinessOverview = async (hoursOverride?: number) => {
+    try {
+      setLowWorthinessLoading(true);
+      const hours = hoursOverride ?? logFilters.hours;
+      const response = await logsApi.getAll({
+        category: 'scheduler',
+        search: 'Skipping low-worthiness post',
+        hours,
+        limit: 1000,
+        offset: 0
+      });
+
+      const withContext = (response.data.logs || []).map((log: any) => ({
+        ...log,
+        _context: parseLogContext(log.context)
+      }));
+
+      setLowWorthinessLogs(withContext);
+      setLowWorthinessTotal(response.data.total || withContext.length);
+    } catch (error) {
+      console.error('Failed to load low-worthiness overview:', error);
+      setLowWorthinessLogs([]);
+      setLowWorthinessTotal(0);
+    } finally {
+      setLowWorthinessLoading(false);
+    }
+  };
+
   const handleCopyDebug = async () => {
     if (!debugSnapshot) return;
     try {
@@ -146,6 +178,7 @@ export default function Pantry() {
       setTimeout(() => setOperationFeedback(null), 3000);
       loadLogs();
       loadLogStats();
+      loadLowWorthinessOverview();
     } catch (error) {
       setOperationFeedback('Failed to cleanup logs');
       setTimeout(() => setOperationFeedback(null), 3000);
@@ -300,6 +333,7 @@ export default function Pantry() {
                     setTimeout(() => {
                       loadLogs({ reset: true });
                       loadLogStats();
+                      loadLowWorthinessOverview(hours);
                     }, 100);
                   }}
                 >
@@ -316,6 +350,7 @@ export default function Pantry() {
                   onClick={() => {
                     loadLogs({ reset: true });
                     loadLogStats();
+                    loadLowWorthinessOverview();
                   }}
                 >
                   Refresh
@@ -337,6 +372,63 @@ export default function Pantry() {
                   </select>
                 </label>
             </div>
+          </div>
+
+          <div className="setting-subgroup">
+            <div className="low-worthiness-header">
+              <h4>Filtered Out: Worthiness &lt; 0.30</h4>
+              <span className="low-worthiness-count">
+                {lowWorthinessLoading ? 'Loading…' : `${lowWorthinessTotal} post(s) in ${logFilters.hours}h`}
+              </span>
+            </div>
+            {lowWorthinessLogs.length > 0 ? (
+              <div className="logs-table-container">
+                <table className="logs-table low-worthiness-table">
+                  <thead>
+                    <tr>
+                      <th>When</th>
+                      <th>Post ID</th>
+                      <th>Worthiness</th>
+                      <th>Threshold</th>
+                      <th>Message</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lowWorthinessLogs.map((log) => {
+                      const context = log._context || null;
+                      return (
+                        <tr key={`low-worthiness-${log.id}`}>
+                          <td className="log-when">{formatLogTimestamp(log.timestamp)}</td>
+                          <td className="log-post-id">
+                            {context?.post_id || '—'}
+                          </td>
+                          <td className="log-score">
+                            {context?.worthiness !== undefined ? Number(context.worthiness).toFixed(2) : '—'}
+                          </td>
+                          <td className="log-score">
+                            {context?.threshold !== undefined ? Number(context.threshold).toFixed(2) : '—'}
+                          </td>
+                          <td className="log-message">{log.message}</td>
+                          <td>
+                            <button
+                              className="btn-secondary btn-small"
+                              onClick={() => setSelectedLogDetail(log)}
+                            >
+                              Details
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="help-text">
+                {lowWorthinessLoading ? 'Loading filtered-out posts…' : `No worthiness-filtered posts found in the last ${logFilters.hours} hours.`}
+              </p>
+            )}
           </div>
 
           <div className="setting-subgroup">
