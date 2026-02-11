@@ -139,7 +139,7 @@ export default function Pantry() {
     try {
       setLowWorthinessLoading(true);
       const hours = hoursOverride ?? logFilters.hours;
-      const [skipRes, scoreRes] = await Promise.all([
+      const [skipRes, scoreRes, titleRes] = await Promise.all([
         logsApi.getAll({
           category: 'scheduler',
           search: 'Skipping low-worthiness post',
@@ -153,6 +153,13 @@ export default function Pantry() {
           hours,
           limit: 1000,
           offset: 0
+        }),
+        logsApi.getAll({
+          category: 'external_api',
+          search: 'Title and summary generated successfully',
+          hours,
+          limit: 1000,
+          offset: 0
         })
       ]);
 
@@ -161,16 +168,19 @@ export default function Pantry() {
         _context: parseLogContext(log.context)
       }));
 
-      const scoreCandidates = (scoreRes.data.logs || []).map((log: any) => {
+      const buildCandidates = (logs: any[]) => logs.map((log: any) => {
         const context = parseLogContext(log.context);
         return {
           timestampMs: log.timestamp ? new Date(log.timestamp).getTime() : 0,
           score: getContextScore(context),
           title: getContextTitle(context),
-          summary: getContextSummary(context),
-          context
+          summary: getContextSummary(context)
         };
-      });
+      }).filter((candidate: any) => candidate.title || candidate.summary);
+
+      const scoreCandidates = buildCandidates(scoreRes.data.logs || []);
+      const titleCandidates = buildCandidates(titleRes.data.logs || []);
+      const allCandidates = [...scoreCandidates, ...titleCandidates];
 
       // Historical skip logs may not include title/summary; enrich from nearest matching score logs.
       const usedScoreCandidateIndexes = new Set<number>();
@@ -186,29 +196,43 @@ export default function Pantry() {
           return log;
         }
 
-        let bestIndex = -1;
-        let bestDistance = Number.POSITIVE_INFINITY;
+        const pickCandidate = (options: { requireScoreMatch: boolean; maxDistanceMs: number }) => {
+          let bestIndex = -1;
+          let bestDistance = Number.POSITIVE_INFINITY;
 
-        scoreCandidates.forEach((candidate, index) => {
-          if (usedScoreCandidateIndexes.has(index)) return;
-          if (!candidate.title && !candidate.summary) return;
-          if (candidate.score === null) return;
-          if (Math.abs(candidate.score - logScore) > 0.01) return;
+          allCandidates.forEach((candidate, index) => {
+            if (usedScoreCandidateIndexes.has(index)) return;
+            if (!candidate.timestampMs) return;
 
-          const distance = Math.abs(candidate.timestampMs - logTimestampMs);
-          if (distance > 5 * 60 * 1000) return;
-          if (distance < bestDistance) {
-            bestDistance = distance;
-            bestIndex = index;
-          }
-        });
+            const distance = Math.abs(candidate.timestampMs - logTimestampMs);
+            if (distance > options.maxDistanceMs) return;
 
+            if (options.requireScoreMatch) {
+              if (candidate.score === null || logScore === null) return;
+              if (Math.abs(candidate.score - logScore) > 0.02) return;
+            }
+
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              bestIndex = index;
+            }
+          });
+
+          return bestIndex;
+        };
+
+        // First pass: strict score+time match. Fallback: nearest title/summary event by time.
+        let bestIndex = pickCandidate({ requireScoreMatch: true, maxDistanceMs: 15 * 60 * 1000 });
         if (bestIndex === -1) {
-          return log;
+          bestIndex = pickCandidate({ requireScoreMatch: false, maxDistanceMs: 2 * 60 * 1000 });
         }
+        if (bestIndex === -1) {
+          bestIndex = pickCandidate({ requireScoreMatch: false, maxDistanceMs: 15 * 60 * 1000 });
+        }
+        if (bestIndex === -1) return log;
 
         usedScoreCandidateIndexes.add(bestIndex);
-        const match = scoreCandidates[bestIndex];
+        const match = allCandidates[bestIndex];
 
         return {
           ...log,
