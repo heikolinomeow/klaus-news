@@ -7,6 +7,37 @@ from app.config import settings
 logger = logging.getLogger('klaus_news.x_client')
 
 
+def detect_content_type(tweet_data, referenced_tweets_full):
+    """Detect content type: 'article', 'quote_article', or 'post' (V-2)
+
+    Args:
+        tweet_data: Tweet object from X API
+        referenced_tweets_full: Dict mapping tweet IDs to full tweet objects
+
+    Returns:
+        str: 'article', 'quote_article', or 'post'
+    """
+    # Check direct article on this tweet
+    if tweet_data.get("article"):
+        return "article"
+    if tweet_data.get("note_tweet"):
+        return "article"
+
+    # Check quoted/referenced tweets for articles
+    ref_tweets_list = tweet_data.get("referenced_tweets", [])
+    for ref in ref_tweets_list:
+        ref_id = ref.get("id")
+        if not ref_id:
+            continue
+        # Look up full referenced tweet in includes.tweets
+        ref_tweet = referenced_tweets_full.get(ref_id)
+        if ref_tweet:
+            if ref_tweet.get("article") or ref_tweet.get("note_tweet"):
+                return "quote_article"
+
+    return "post"
+
+
 class XAPIError(Exception):
     """Exception raised when X API returns an error"""
     def __init__(self, status_code: int, response_body: str):
@@ -48,8 +79,8 @@ class XClient:
         }
         params = {
             "max_results": max_results,
-            "tweet.fields": "created_at,author_id,referenced_tweets",
-            "expansions": "author_id,referenced_tweets.id",
+            "tweet.fields": "article,note_tweet,entities,referenced_tweets,text,suggested_source_links,card_uri,created_at,author_id",
+            "expansions": "referenced_tweets.id,article.cover_media,article.media_entities,author_id",
             "user.fields": "username"
         }
 
@@ -74,6 +105,9 @@ class XClient:
             # Build referenced tweets lookup (for full RT text)
             referenced_tweets = {t["id"]: t["text"] for t in data.get("includes", {}).get("tweets", [])}
 
+            # Build referenced tweets full object lookup (for article detection) — V-2
+            referenced_tweets_full = {t["id"]: t for t in data.get("includes", {}).get("tweets", [])}
+
             for tweet in data.get("data", []):
                 # Get full text: for retweets, use the original tweet's full text
                 text = tweet["text"]
@@ -86,11 +120,14 @@ class XClient:
                         text = f"{original_author}: {full_original}" if original_author else full_original
                         break
 
+                content_type = detect_content_type(tweet, referenced_tweets_full)  # V-2
                 posts.append({
                     "id": tweet["id"],
                     "text": text,
                     "author": users.get(tweet["author_id"], "unknown"),
-                    "created_at": datetime.fromisoformat(tweet["created_at"].replace("Z", "+00:00"))
+                    "created_at": datetime.fromisoformat(tweet["created_at"].replace("Z", "+00:00")),
+                    "content_type": content_type,  # V-2
+                    "raw_tweet": tweet  # V-3: pass full tweet for article extraction
                 })
 
             logger.info(f"Successfully fetched {len(posts)} posts from X list", extra={

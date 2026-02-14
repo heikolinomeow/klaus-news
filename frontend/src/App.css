@@ -4075,6 +4075,19 @@ main {
   color: var(--ink-gray);
 }
 
+/* V-5: Article badge styling */
+.article-badge {
+  background: var(--paper-aged);
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 0.75em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ink-dark);
+  border: 1px solid var(--rule-dark);
+}
+
 .article-category {
   text-transform: uppercase;
   letter-spacing: 0.1em;

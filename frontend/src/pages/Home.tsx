@@ -24,6 +24,7 @@ function Home() {
   const [worthinessThreshold, setWorthinessThreshold] = useState(0.3);
   const [minSourcesThreshold, setMinSourcesThreshold] = useState(1);
   const [sortBy, setSortBy] = useState<SortOption>('worthiness');
+  const [contentTypeFilter, setContentTypeFilter] = useState<'all' | 'posts' | 'articles'>('all');  // V-5
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
@@ -187,6 +188,13 @@ function Home() {
       if (g.state && g.state !== 'NEW') {
         return false;
       }
+      // V-5: Content type filter
+      if (contentTypeFilter === 'posts' && g.content_type && ['article', 'quote_article'].includes(g.content_type)) {
+        return false;
+      }
+      if (contentTypeFilter === 'articles' && (!g.content_type || g.content_type === 'post')) {
+        return false;
+      }
       // Filter by selected category if any
       if (selectedCategory && g.category !== selectedCategory) {
         return false;
@@ -212,7 +220,7 @@ function Home() {
           return 0;
       }
     });
-  }, [groups, selectedCategory, worthinessThreshold, minSourcesThreshold, sortBy]);
+  }, [groups, selectedCategory, worthinessThreshold, minSourcesThreshold, sortBy, contentTypeFilter]);  // V-5: added contentTypeFilter
 
   const groupCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -265,6 +273,8 @@ function Home() {
           onMinSourcesChange={setMinSourcesThreshold}
           sortBy={sortBy}
           onSortChange={setSortBy}
+          contentTypeFilter={contentTypeFilter}
+          onContentTypeFilterChange={setContentTypeFilter}
           autoFetchEnabled={autoFetchEnabled}
           onToggleAutoFetch={handleToggleAutoFetch}
           onTriggerIngestion={handleTriggerIngestion}

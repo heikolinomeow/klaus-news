@@ -145,6 +145,10 @@ C) For each shared V:
 - PMT -> WMBC: consistency check, no scope creep.
 - Files touched: verify paths exist; enforce Gate 4.
 - Risk: flag Risk > 3 purely from the written Risk line.
+- **Concreteness check (NEW)**: Scan WMBC for vague action verbs without anchors:
+  - Pattern: "detect", "inspect", "check", "parse", "determine", "classify" WITHOUT specifying which field/function/property/condition
+  - Pattern: "response", "payload", "object", "data", "structure" WITHOUT specifying field names or schema
+  - If found: WMBC incomplete = YES. Propose: "Add field names / function signatures / data structure / conditional logic to WMBC"
 
 For anything missing/wrong, propose a surgical patch in `docs/spec_improve.md`.
 

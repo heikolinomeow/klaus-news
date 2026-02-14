@@ -158,6 +158,7 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
         settings_svc = SettingsService(db)
         posts_per_fetch = settings_svc.get('posts_per_fetch', 5)
         scheduler_paused = settings_svc.get('scheduler_paused', False)
+        article_pipeline_enabled = settings_svc.get('article_pipeline_enabled', False)  # V-11
 
         # V-16: Check if scheduler is paused (manual triggers bypass pause)
         if scheduler_paused and trigger_source == "scheduled":
@@ -185,6 +186,46 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
             })
             progress_tracker.finish()
             return stats
+
+        # V-3: Extract article metadata helper (defined once before list loop)
+        def extract_article_metadata(raw_post):
+            """Extract article metadata from X API response (V-3)
+            Returns dict with article_id, article_title, article_subtitle, article_text, fallback_reason
+            """
+            tweet = raw_post.get("raw_tweet", {})
+
+            # Check direct article
+            article = tweet.get("article")
+            if article:
+                return {
+                    "article_id": article.get("id"),
+                    "article_title": article.get("title"),
+                    "article_subtitle": article.get("subtitle"),
+                    "article_text": article.get("text", ""),
+                    "fallback_reason": None if article.get("text") else "article_text field empty"
+                }
+
+            # Check note_tweet
+            note_tweet = tweet.get("note_tweet")
+            if note_tweet:
+                note_text = note_tweet.get("text", "")
+                return {
+                    "article_id": None,
+                    "article_title": None,
+                    "article_subtitle": None,
+                    "article_text": note_text,
+                    "fallback_reason": None if note_text else "note_tweet text empty"
+                }
+
+            # For QUOTE_ARTICLE: would need to look up referenced tweet article data
+            # For now, return fallback
+            return {
+                "article_id": None,
+                "article_title": None,
+                "article_subtitle": None,
+                "article_text": "",
+                "fallback_reason": "article data not found"
+            }
 
         for list_idx, list_meta in enumerate(enabled_lists, 1):
             stats['lists_processed'] += 1
@@ -265,12 +306,32 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                     progress_tracker.post_skipped()
                     continue
 
+                # V-11: Feature flag for article pipeline
+                if article_pipeline_enabled:
+                    # V-3: Route based on content_type
+                    content_type = raw_post.get("content_type", "post")
+                    article_metadata = None
+
+                    if content_type == "post":
+                        # Existing flow: use tweet text
+                        content_for_ai = raw_post['text']
+                    else:  # article or quote_article
+                        # Extract article content
+                        article_metadata = extract_article_metadata(raw_post)
+                        content_for_ai = article_metadata.get("article_text", "") or raw_post['text']
+                        # Fallback: if article_text is empty, use tweet text
+                else:
+                    # V-11: Flag disabled - default to post pipeline
+                    content_type = "post"
+                    article_metadata = None
+                    content_for_ai = raw_post['text']
+
                 # 3. Process each post: categorize, generate title/summary, score
                 progress_tracker.set_step("categorizing")
-                cat_result = await openai_client.categorize_post(raw_post['text'])
+                cat_result = await openai_client.categorize_post(content_for_ai)
 
                 progress_tracker.set_step("generating")
-                gen_result = await openai_client.generate_title_and_summary(raw_post['text'])
+                gen_result = await openai_client.generate_title_and_summary(content_for_ai)
 
                 # Guard against occasional empty LLM outputs so cards never render blank.
                 generated_title = (gen_result.get('title') or '').strip()
@@ -290,7 +351,7 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                 progress_tracker.set_step("scoring")
                 try:
                     worthiness = await openai_client.score_worthiness(
-                        raw_post['text'],
+                        content_for_ai,
                         db=db,
                         title=gen_result.get('title'),
                         summary=gen_result.get('summary')
@@ -376,7 +437,14 @@ async def ingest_posts_job(trigger_source: str = "scheduled"):
                     ai_title=gen_result['title'],
                     ai_summary=gen_result['summary'],
                     worthiness_score=worthiness,
-                    group_id=group_id
+                    group_id=group_id,
+                    content_type=content_type,  # V-4: from V-3 routing
+                    source_post_id=raw_post['id'],  # V-4: X post ID for traceability
+                    article_id=article_metadata.get("article_id") if article_metadata else None,  # V-4
+                    article_title=article_metadata.get("article_title") if article_metadata else None,  # V-4
+                    article_subtitle=article_metadata.get("article_subtitle") if article_metadata else None,  # V-4
+                    article_text=article_metadata.get("article_text") if article_metadata else None,  # V-4
+                    ingestion_fallback_reason=article_metadata.get("fallback_reason") if article_metadata else None  # V-4
                 )
                 db.add(new_post)
                 stats['new_posts_added'] += 1

@@ -189,8 +189,14 @@ For each patch in order:
    - Evaluate Regression Guard.
    - Evaluate Spec Discipline Guard (simulate post-change invariants).
    - If all pass, apply surgically with exact-match rules.
-7) Write `docs/spec_apply.md`.
-8) Save patched `docs/specs.md`.
+7) **Executability Gate (NEW, before write)**: After applying all patches, for each V-item in patched specs.md, ask:
+   - "Can STCC write patch operations from this WMBC WITHOUT guessing field names, function signatures, or data structures?"
+   - If NO for any V-item: Do NOT save specs.md. Instead:
+     - Add to spec_apply.md: "EXECUTABILITY_FAIL: V-X needs <field names / function signature / data structure / conditional logic>"
+     - Emit gate: `apply_log_written=no` (force another bts-1 iteration)
+   - If YES for all: proceed to step 8.
+8) Write `docs/spec_apply.md`.
+9) Save patched `docs/specs.md`.
 
 ---
 

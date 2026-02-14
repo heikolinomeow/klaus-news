@@ -9,6 +9,8 @@ interface FilterSidebarProps {
   onMinSourcesChange: (value: number) => void;
   sortBy?: SortOption;
   onSortChange?: (value: SortOption) => void;
+  contentTypeFilter?: 'all' | 'posts' | 'articles';  // V-9
+  onContentTypeFilterChange?: (value: 'all' | 'posts' | 'articles') => void;  // V-9
   // Ingestion controls (optional - only shown when provided)
   autoFetchEnabled?: boolean;
   onToggleAutoFetch?: () => void;
@@ -31,6 +33,8 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
   onMinSourcesChange,
   sortBy,
   onSortChange,
+  contentTypeFilter,
+  onContentTypeFilterChange,
   autoFetchEnabled,
   onToggleAutoFetch,
   onTriggerIngestion,
@@ -87,6 +91,22 @@ const FilterSidebar: React.FC<FilterSidebarProps> = ({
             <option value="worthiness">Worthiness</option>
             <option value="sources">Sources</option>
             <option value="newest">Newest</option>
+          </select>
+        </div>
+      )}
+
+      {/* V-9: Content type filter */}
+      {onContentTypeFilterChange && (
+        <div className="sidebar-filter-item">
+          <label>Content Type</label>
+          <select
+            value={contentTypeFilter ?? 'all'}
+            onChange={(e) => onContentTypeFilterChange(e.target.value as 'all' | 'posts' | 'articles')}
+            className="sidebar-select"
+          >
+            <option value="all">All</option>
+            <option value="posts">Posts Only</option>
+            <option value="articles">Articles Only</option>
           </select>
         </div>
       )}

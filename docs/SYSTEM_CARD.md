@@ -1,197 +1,122 @@
 # Klaus News - System Card
 
+## Last Updated
+2026-02-13
+
 ## What It Is
-AI-powered internal news tool that fetches X/Twitter posts, scores them, groups related posts into stories, generates articles via AI, and publishes to Microsoft Teams.
+Klaus News is an internal AI-assisted news workflow for curated X lists:
+1. Ingest posts on a schedule or manually.
+2. Categorize, score, and group posts into stories.
+3. Research stories and generate publishable articles.
+4. Review/edit and publish to Microsoft Teams.
 
----
+## Major Changes Since Previous Docs
+- JWT authentication is now required for almost all API routes.
+- Group-first workflow is the primary path (`NEW -> COOKING -> REVIEW -> PUBLISHED`).
+- Research and article generation are now group-based (`group_research`, `group_articles`).
+- Frontend theme moved from dark UI to a print/newspaper visual style.
+- Pantry now includes operational debug snapshot and low-worthiness visibility.
+- Scheduler now includes log cleanup and dynamic rescheduling from settings.
 
-## Architecture at a Glance
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         KLAUS NEWS                                   │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐      │
-│  │  INGEST  │ →  │  COOKING │ →  │ SERVING  │ →  │  TEAMS   │      │
-│  │          │    │          │    │          │    │          │      │
-│  │ X API    │    │ Research │    │ Review   │    │ Publish  │      │
-│  │ Score    │    │ Generate │    │ Edit     │    │ Webhook  │      │
-│  │ Group    │    │ Article  │    │ Approve  │    │          │      │
-│  └──────────┘    └──────────┘    └──────────┘    └──────────┘      │
-│       ↑               ↑               ↑               ↑             │
-│       │               │               │               │             │
-│  Background      User-driven     User-driven     User-driven        │
-│  (Scheduler)                                                        │
-│                                                                      │
-├─────────────────────────────────────────────────────────────────────┤
-│  Backend: FastAPI + SQLAlchemy | Frontend: React + Vite             │
-│  Database: PostgreSQL          | Deploy: Docker Compose / Railway   │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Data Model (Simplified)
+## Architecture At A Glance
 
 ```
-Post (raw X tweet)
-  └─→ Group (story = collection of related posts)
-        ├─→ GroupResearch (optional AI research)
-        └─→ GroupArticle (generated article)
-                 └─→ Teams (published)
+X Lists -> Scheduler/Admin Trigger -> Ingestion Pipeline -> PostgreSQL
+                                                      |
+                                                      v
+                                               Group Workflow
+                                        (NEW -> COOKING -> REVIEW -> PUBLISHED)
+                                                      |
+                                                      v
+                                           Research + Article Drafting
+                                                      |
+                                                      v
+                                        Review/Edit -> Teams Adaptive Card
 ```
 
-**State Flow:** `NEW → COOKING → REVIEW → PUBLISHED`
+## Core Runtime Components
 
----
-
-## Services
-
-| Service | Purpose | Runs |
-|---------|---------|------|
-| **Scheduler** | Fetch posts, archive old groups, cleanup logs | Background (APScheduler) |
-| **X Client** | Fetch from X API v2 | On-demand |
-| **OpenAI Client** | Categorize, score, generate articles, research | On-demand |
-| **Teams Service** | Publish via webhook (Adaptive Cards) | On-demand |
-| **Settings Service** | Cached config from DB (60s TTL) | On-demand |
-| **Progress Tracker** | Real-time ingestion status | During ingestion |
-
----
-
-## Key API Routes
-
-| Route | Purpose |
-|-------|---------|
-| `/api/posts` | Raw posts CRUD |
-| `/api/groups` | Story groups (archive/select) |
-| `/api/group-articles` | Generate/update articles |
-| `/api/research` | Run AI research (quick/agentic/deep) |
-| `/api/admin` | Trigger ingestion, pause scheduler |
-| `/api/teams` | List channels, publish article |
-| `/api/settings` | System configuration |
-| `/api/prompts` | AI prompt management |
-
----
-
-## GOTCHAS & CRITICAL NOTES
-
-### OpenAI Models
-| Model | Use | Gotcha |
-|-------|-----|--------|
-| `gpt-5-mini` | Categorize, score | **No temperature support** - only default=1 |
-| `gpt-4o` | Title/summary generation | Standard completion |
-| `gpt-5.1` | Quick/agentic research | Use with `web_search` tool |
-| `o4-mini-deep-research` | Deep research | Web search **built-in** - don't pass tools |
-
-### Scheduler
-- **Pause state**: When `scheduler_paused=true`, jobs don't run
-- **Manual triggers** bypass pause (via `/api/admin/trigger-ingestion`)
-- Jobs: ingest (configurable interval), archive (daily), log cleanup (daily 4AM)
-
-### Post Processing
-- **Link-only filter**: Posts with <20 chars after URL removal are skipped
-- **Semantic grouping**: AI compares titles (threshold: 0.85) - not string matching
-- **Worthiness scoring**: Detects "I'm sorry" / error content → returns 0.0
-
-### Database
-- **Visibility inheritance**: Posts inherit `archived` from their Group
-- **Manual migrations**: `preview` column added on startup if missing
-- **Default settings**: Seeded on first run
-
-### Teams Integration
-- **Webhook URLs**: Never exposed to frontend (security)
-- **Response codes**: Accepts both 200 and 202 (Power Automate returns 202)
-- **Format**: Adaptive Card v1.3 with expandable content
-
-### X API
-- **402 error** = Payment required (credits depleted)
-- **Retweet handling**: Fetches original tweet text to avoid truncation
-- **Deduplication**: Tracks `last_tweet_id` per list
-
----
-
-## Environment Variables
-
-### Backend (Required)
-```bash
-DATABASE_URL=postgresql://user:pass@host:5432/klaus_news
-X_API_KEY=<bearer_token>
-OPENAI_API_KEY=<key>
-TEAMS_CHANNELS='[{"name":"General","webhookUrl":"https://..."}]'
-```
+### Backend
+- FastAPI app in `backend/app/main.py`
+- SQLAlchemy + PostgreSQL
+- APScheduler for background jobs
+- OpenAI client for categorization/scoring/research/article generation
+- X client for list ingestion
+- Teams service for Adaptive Card delivery
 
 ### Frontend
-```bash
-VITE_API_URL=http://localhost:8000  # or Railway backend URL
-```
+- React + TypeScript + Vite
+- Protected routes via JWT token in local storage
+- Main pages: Home, Cooking, Serving, Pantry, Settings
 
----
+### Database (Primary Domain Tables)
+- `posts`: ingested X posts + AI metadata
+- `groups`: story-level entity and workflow state
+- `group_research`: research runs per group
+- `group_articles`: generated and edited articles per group
+- `list_metadata`: configured X lists and last fetch cursor
+- `system_settings`: runtime configuration
+- `prompts`: editable AI prompts
+- `system_logs`: structured operational logs
+- `articles`: legacy post-based article table (still present)
 
-## Docker Services
+## State Model
+`NEW -> COOKING -> REVIEW -> PUBLISHED`
 
-| Service | Port | Image |
-|---------|------|-------|
-| postgres | 5432 | postgres:15-alpine |
-| backend | 8000 | python:3.11-slim + uvicorn |
-| frontend | 3000 | nginx:alpine (serves React build) |
+Transition enforcement exists in `/api/groups/{group_id}/transition`.
 
----
+## API Surface (Current)
 
-## Why Railway (Not Vercel)
+### Active workflow APIs
+- `/auth/*`
+- `/api/groups/*`
+- `/api/groups/{id}/research/*`
+- `/api/groups/{id}/article/*`
+- `/api/teams/*`
+- `/api/settings/*`
+- `/api/prompts/*`
+- `/api/lists/*`
+- `/api/admin/*`
+- `/api/logs/*`
 
-| Requirement | Railway | Vercel |
-|-------------|---------|--------|
-| Docker support | Yes | No |
-| Always-running backend | Yes (container) | No (serverless) |
-| Background scheduler | Yes | No |
-| Managed PostgreSQL | Yes | No (need external) |
-| Single platform | Yes | No (need 3 services) |
+### Legacy/partial APIs still mounted
+- `/api/articles/*` (older post-based flow)
+- `/api/posts/{id}` currently returns stub payload (`{"post": null}`)
 
----
+## Scheduling and Automation
+Jobs are always registered and run through pause checks:
+- `ingest_posts` interval job (configurable, default 30 min)
+- `archive_posts` daily job (configurable hour, default 03:00)
+- `cleanup_logs` daily job (04:00)
 
-## File Map (Critical Files)
+Important behavior:
+- `scheduler_paused=true` blocks scheduled runs.
+- Manual trigger endpoints still run ingestion/archive.
+- Auto-fetch can be disabled independently (`auto_fetch_enabled`).
 
-```
-backend/
-├── app/main.py              # FastAPI app, startup, routers
-├── app/database.py          # SQLAlchemy, migrations, defaults
-├── models/*.py              # Post, Group, GroupArticle, GroupResearch, etc.
-├── services/
-│   ├── scheduler.py         # APScheduler jobs
-│   ├── x_client.py          # X API
-│   ├── openai_client.py     # All AI operations
-│   ├── teams_service.py     # Webhook publishing
-│   └── progress_tracker.py  # Ingestion progress
-└── api/*.py                 # Route handlers
+## Security Model
+- Backend enforces JWT auth middleware for all non-public routes.
+- Public paths: `/`, `/health`, `/auth/login`, docs endpoints.
+- Required backend env vars at startup:
+  - `AUTH_PASSWORD`
+  - `AUTH_JWT_SECRET`
+- Teams webhook URLs are never exposed to frontend; only channel names are returned.
 
-frontend/
-├── src/pages/
-│   ├── Home.tsx             # Post browsing
-│   ├── Cooking.tsx          # Article generation
-│   ├── Serving.tsx          # Review & publish
-│   └── Settings.tsx         # Configuration
-├── src/services/api.ts      # Axios API client
-└── src/types/index.ts       # TypeScript interfaces
+## AI Model Usage (Current)
+- `gpt-5-mini`: title/summary generation, categorization, worthiness, duplicate similarity, article and refinement
+- `gpt-5.1` + `web_search` tool: quick and agentic research
+- `o4-mini-deep-research`: deep research mode (no explicit tool list)
 
-docker-compose.yml           # 3 services
-docs/DEPLOYMENT_PLAYBOOK.md  # Railway deployment guide
-```
+## Key Operational Rules
+- Link-only posts are skipped if text-after-URL removal is shorter than 20 chars.
+- Low-worthiness posts are dropped below `min_worthiness_threshold`.
+- Group matching is semantic title comparison against all groups in a category (including archived groups).
+- Teams send accepts HTTP 200 and 202 responses.
 
----
+## Deployment Model
+- Local: Docker Compose (`postgres`, `backend`, `frontend`)
+- Production target: Railway (containerized backend/frontend + managed Postgres)
 
-## Quick Commands
-
-```bash
-# Local development
-docker-compose up
-
-# View logs
-docker-compose logs -f backend
-
-# Restart after code change
-docker-compose restart backend
-
-# Database shell
-docker-compose exec postgres psql -U postgres -d klaus_news
-```
+## Known Implementation Notes
+- `settings` article prompt helper endpoint still uses legacy style keys (`news_brief`, etc.), while main generation path uses `very_short/short/medium/long/custom` setting keys.
+- `README.md` is behind the codebase and still describes older model/flow details.

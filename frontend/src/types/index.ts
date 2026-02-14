@@ -23,6 +23,14 @@ export interface Post {
   // Duplicate detection
   group_id: string | null;
 
+  // Article support (V-5/V-8)
+  content_type?: 'post' | 'article' | 'quote_article';
+  source_post_id?: string | null;
+  article_id?: string | null;
+  article_title?: string | null;
+  article_text?: string | null;
+  ingestion_fallback_reason?: string | null;
+
   // State
   archived: boolean;
   selected: boolean;
@@ -67,6 +75,7 @@ export interface Group {
   source_post_id?: string | null;
   source_author?: string | null;
   source_url?: string | null;
+  content_type?: 'post' | 'article' | 'quote_article';  // V-5/V-8: type of representative post
 }
 
 export interface GroupsResponse {

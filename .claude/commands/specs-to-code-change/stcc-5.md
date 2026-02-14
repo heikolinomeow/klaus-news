@@ -59,4 +59,4 @@ Required:
 ## Final chat output (required)
 In chat, print EXACTLY one line:
 
-STCC_A5_GATE: written=docs/specs_missing.md,docs/specs_incomplete.md
+STCC_A5_GATE: written=docs/specs_missing.md,docs/specs_incomplete.md | status=ok | metrics: missing_before=<n> missing_removed=<n> missing_after=<n> incomplete_before=<n> incomplete_removed=<n> incomplete_after=<n>

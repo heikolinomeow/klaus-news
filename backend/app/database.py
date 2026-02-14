@@ -30,6 +30,34 @@ def run_migrations():
         except Exception:
             db.execute(text("ALTER TABLE group_articles ADD COLUMN preview TEXT"))
             db.commit()
+
+        # V-8: Add article-related columns to posts table if they don't exist
+        try:
+            db.execute(text("SELECT content_type FROM posts LIMIT 1"))
+        except Exception:
+            db.execute(text("ALTER TABLE posts ADD COLUMN content_type VARCHAR DEFAULT 'post' NOT NULL"))
+            db.execute(text("ALTER TABLE posts ADD COLUMN source_post_id VARCHAR"))
+            db.execute(text("ALTER TABLE posts ADD COLUMN quoted_post_id VARCHAR"))
+            db.execute(text("ALTER TABLE posts ADD COLUMN article_id VARCHAR"))
+            db.execute(text("ALTER TABLE posts ADD COLUMN article_title VARCHAR"))
+            db.execute(text("ALTER TABLE posts ADD COLUMN article_subtitle VARCHAR"))
+            db.execute(text("ALTER TABLE posts ADD COLUMN article_text TEXT"))
+            db.execute(text("ALTER TABLE posts ADD COLUMN article_entities TEXT"))
+            db.execute(text("ALTER TABLE posts ADD COLUMN ingestion_fallback_reason VARCHAR"))
+            db.commit()
+
+        # V-11: Add article_pipeline_enabled feature flag default
+        try:
+            result = db.execute(text("SELECT value FROM system_settings WHERE key = 'article_pipeline_enabled'"))
+            if not result.fetchone():
+                db.execute(text(
+                    "INSERT INTO system_settings (key, value, description) "
+                    "VALUES ('article_pipeline_enabled', 'false', 'Enable article detection and routing pipeline (V-11)')"
+                ))
+                db.commit()
+        except Exception:
+            # Setting already exists or system_settings table issue
+            pass
     except Exception:
         db.rollback()
     finally:

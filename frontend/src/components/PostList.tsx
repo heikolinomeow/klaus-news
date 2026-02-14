@@ -149,6 +149,10 @@ function PostList({ groups, onSelectGroup, onArchiveGroup, isSelecting }: PostLi
               {heroStory.post_count} {heroStory.post_count === 1 ? 'source' : 'sources'}
             </span>
           </div>
+          {/* V-5: Article badge */}
+          {heroStory.content_type && ['article', 'quote_article'].includes(heroStory.content_type) && (
+            <span className="article-badge">Article</span>
+          )}
           {renderArticleActions(heroStory)}
           {renderExpandedPosts(heroStory.id)}
         </article>
@@ -172,6 +176,10 @@ function PostList({ groups, onSelectGroup, onArchiveGroup, isSelecting }: PostLi
                   {story.post_count} {story.post_count === 1 ? 'source' : 'sources'}
                 </span>
               </div>
+              {/* V-5: Article badge */}
+              {story.content_type && ['article', 'quote_article'].includes(story.content_type) && (
+                <span className="article-badge">Article</span>
+              )}
               {renderArticleActions(story)}
               {renderExpandedPosts(story.id)}
             </article>
@@ -199,6 +207,10 @@ function PostList({ groups, onSelectGroup, onArchiveGroup, isSelecting }: PostLi
                   {story.post_count} {story.post_count === 1 ? 'source' : 'sources'}
                 </span>
               </div>
+                {/* V-5: Article badge */}
+                {story.content_type && ['article', 'quote_article'].includes(story.content_type) && (
+                  <span className="article-badge">Article</span>
+                )}
               {renderArticleActions(story)}
               {renderExpandedPosts(story.id)}
             </article>

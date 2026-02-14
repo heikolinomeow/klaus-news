@@ -62,6 +62,36 @@ async def trigger_ingestion_manually(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
 
 
+@router.post("/backfill-content-types")
+async def backfill_content_types(db: Session = Depends(get_db)):
+    """Re-process recent posts to assign content_type retroactively (V-11)
+
+    Finds posts where content_type is NULL or 'post' and re-runs detection logic.
+    Note: Requires article_pipeline_enabled to be true and X API article fields to be available.
+    This is a stub endpoint - actual backfill logic requires re-fetching from X API.
+    """
+    from app.models.post import Post
+    from sqlalchemy import select, or_
+
+    # Find posts needing backfill (NULL or 'post')
+    posts_to_backfill = db.execute(
+        select(Post).where(
+            or_(Post.content_type == 'post', Post.content_type.is_(None))
+        ).limit(100)  # Process in batches
+    ).scalars().all()
+
+    backfilled_count = 0
+    # Note: Actual re-detection logic would require re-fetching from X API
+    # For now, just return the count
+
+    return {
+        "status": "success",
+        "posts_found": len(posts_to_backfill),
+        "backfilled": backfilled_count,
+        "note": "Backfill requires re-fetching from X API - implement as needed"
+    }
+
+
 @router.post("/trigger-archive")
 async def trigger_archive_manually(db: Session = Depends(get_db)):
     """Manually trigger post archival job (V-15)

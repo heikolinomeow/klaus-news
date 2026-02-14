@@ -42,10 +42,11 @@ You are not a reviewer. You are a translator:
 
 ## Forbidden (HARD)
 - Do NOT write code (no code blocks, snippets, pseudo-code, diff format, or API payloads).
-- Do NOT invent requirements beyond `docs/brief.md` (no “nice to have”, no “aesthetic”, no “should also”).
+- Do NOT invent requirements beyond `docs/brief.md` (no "nice to have", no "aesthetic", no "should also").
 - Do NOT claim a file exists unless you have verified it exists in the repo.
-- Do NOT infer hidden requirements from repo structure (“they probably want X”).
-- Do NOT “tighten ambiguity” by choosing an interpretation. Use `TBD:`.
+- Do NOT infer hidden requirements from repo structure ("they probably want X").
+- Do NOT "tighten ambiguity" by choosing an interpretation. Use `TBD:`.
+- **Do NOT describe actions without anchors.** If you write "detect X", "inspect Y", "check Z", "parse W" → you MUST specify: which field/function/property/condition to check. If unknown: write `TBD:field_name_for_X_detection` or `TBD:requires_external_schema`.
 
 ---
 

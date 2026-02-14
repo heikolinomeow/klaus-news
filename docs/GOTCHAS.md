@@ -194,6 +194,32 @@
 **Behavior:** If user edits prompt and forgets original, must reset to default (loses custom tuning)
 **Mitigation:** Recommend exporting prompts before major changes; implement audit log in future
 
+## X Article Ingestion
+
+### Article API Fields Dependency
+**Issue:** X API request now includes article-specific fields (`article`, `note_tweet`, `referenced_tweets` expansions per V-6)
+**Risk:** Medium (5/10)
+**Behavior:** If X API deprecates these fields or changes response structure, article detection may break; existing tweet.fields like `created_at`, `author_id` must remain or current parsing will fail
+**Mitigation:** Monitor X API changelog; implement defensive parsing with null checks; fallback to tweet text if article fields missing; V-6 merges new fields with existing required fields to prevent breakage
+
+### Article Text Fallback Chain
+**Issue:** Article text may be unavailable due to permissions, paywalls, or API restrictions (V-7 processing rules)
+**Risk:** Medium (4/10)
+**Behavior:** System falls back to article metadata + tweet text when `article.text` is empty or missing; summarization proceeds with available content
+**Mitigation:** Fallback reason logged in `ingestion_fallback_reason` field; article metadata (title, subtitle) combined with post context for AI processing; system does not fail ingestion when article text unavailable
+
+### Content Type Field Migration
+**Issue:** Existing posts in database won't have `content_type` field populated (V-4, V-8)
+**Risk:** Low (3/10)
+**Behavior:** NULL or missing `content_type` treated as 'post' by default; UI filter may show inconsistent results until backfill completes
+**Mitigation:** Feature flag controls rollout (V-11); optional backfill mechanism to re-process recent posts for article typing; frontend handles NULL gracefully by defaulting to 'post' type
+
+### Article Pipeline Feature Flag
+**Issue:** Feature flag (`article_pipeline_enabled` in system_settings) gates entire article detection/routing pipeline (V-11)
+**Risk:** Medium (4/10)
+**Behavior:** When flag is disabled, all posts flow through existing POST pipeline unchanged; when enabled, V-2/V-3 detection and routing logic activates
+**Mitigation:** Flag-off state must be identical to current behavior to prevent regression; test both states thoroughly; monitoring should segment metrics by content_type when flag is enabled
+
 ## OpenAI API Integration
 
 ### OpenAI Model Reference (January 2026)

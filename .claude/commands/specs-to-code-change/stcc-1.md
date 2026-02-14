@@ -138,11 +138,17 @@ For any requirement supposedly covered by an `OP-*`:
 - COMPLETE:
   - Every requirement line is COVERED by the patch plan (or valid NO-OP proven).
 - PARTIALLY:
-  - At least 1 requirement line is COVERED AND at least 1 is NOT COVERED.
+  - The V exists in `docs/code_patches.md` but has incomplete coverage:
+    - At least 1 requirement line is COVERED AND at least 1 is NOT COVERED, OR
+    - 0 requirement lines are COVERED (includes BLOCKER, DEFERRED, or all ops invalid/unexecutable/ungrounded).
 - MISSING:
-  - 0 requirement lines are COVERED, OR the V is absent from `docs/code_patches.md`, OR all purported coverage depends on invalid/unexecutable/ungrounded ops.
+  - The V is completely absent from `docs/code_patches.md` (no `## V-<n>` section at all).
 
 If unsure between COMPLETE and PARTIALLY: choose PARTIALLY.
+
+**Rationale for PARTIALLY including 0-coverage cases:**
+- If a V-section exists in code_patches.md (even as a stub/BLOCKER/DEFERRED with 0 operations), it should be classified as PARTIALLY so that stcc-4 can REPLACE it with a proper implementation attempt.
+- MISSING is reserved exclusively for V-items that have no section at all in code_patches.md, so stcc-3 can ADD them without creating duplicates.
 
 ---
 
@@ -161,12 +167,16 @@ If unsure between COMPLETE and PARTIALLY: choose PARTIALLY.
    - Extract requirement lines (Rule 1).
    - Resolve embedded references (Rule 1B) and append derived requirements.
    - Locate the same `V-*` in `docs/code_patches.md` (by number).
-     - If missing → V is MISSING; still list all requirements as NOT COVERED.
+     - If absent (no `## V-<n>` section at all) → V is MISSING; still list all requirements as NOT COVERED and skip to next V.
+     - If present (V-section exists), proceed to coverage analysis.
    - For each requirement line:
      - Find OP(s) or NO-OP proof that claims to satisfy it.
      - Validate executability + grounding as required.
      - Mark requirement as COVERED / NOT COVERED.
-   - Determine V status (COMPLETE/PARTIALLY/MISSING).
+   - Determine V status (COMPLETE/PARTIALLY/MISSING):
+     - Count covered vs not-covered requirements.
+     - Apply status definitions from "Status definitions (strict)" section above.
+     - Remember: if V-section exists but has 0 coverage → PARTIALLY (not MISSING).
    - Record any scope creep found in this V’s OPs.
 4) Write `docs/spec_to_code_audit.md` using the format below.
 5) Overwrite completely (no append).
